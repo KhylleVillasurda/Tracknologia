@@ -45,6 +45,11 @@ Core invariants:
 
 > Direct client INSERT/UPDATE/DELETE on `provider_memberships` is strictly prohibited. Memberships must only be created via authorized atomic `SECURITY DEFINER` procedures (Owner onboarding / Staff invitation acceptance).
 
+> Authenticated clients receive only column-level `UPDATE` privileges for
+> Provider operating fields. Provider type, slug, ownership, IDs, and timestamps
+> are not client-editable. Direct Service Mode writes are denied; Owners replace
+> modes through the narrow atomic `set_provider_service_modes` function.
+
 Application authorization remains required even with RLS. RLS is defense in depth, not a replacement for domain checks.
 
 ## Staff Invitation Security (LD-01)
@@ -60,10 +65,12 @@ Every Staff invitation is:
 - never exposed as a reusable credential in pending invitation lists;
 - consumed atomically with `STAFF` membership and person profile creation via `accept_staff_invitation` RPC;
 - database-enforced against users who already have an active Provider membership while multi-membership is unsupported.
+- pre-auth invitation detail lookup returns only the invited email and public
+  Shop identity; it does not expose Provider contact email or phone.
 
 ## Public Provider Projections
 
-Anonymous and unauthenticated visitors cannot access raw `providers` table rows. Public access is strictly projected through `public_provider_profiles` which explicitly selects only safe public columns (`id`, `display_name`, `slug`, `description`, `profile_image_url`, `public_address`, `service_area`, `supported_devices`, `accepting_requests`, `created_at`). Internal contact numbers, billing emails, and private metadata are never exposed anonymously.
+Anonymous and unauthenticated visitors cannot access raw `providers` table rows. Public access is strictly projected through `public_provider_profiles` which explicitly selects only safe public columns (`id`, `provider_type`, `display_name`, `slug`, `description`, `profile_image_url`, `public_address`, `service_area`, `supported_devices`, `service_modes`, `accepting_requests`, `created_at`) and only includes Providers accepting Requests. Internal contact numbers, billing emails, private metadata, and update timestamps are never exposed anonymously.
 
 ## Redirect Path Hardening
 
@@ -152,6 +159,10 @@ Browser-safe public/publishable configuration is distinct from privileged server
 - Raw invitation tokens are never returned by pending listing APIs or stored in plain text.
 - unauthenticated user cannot access Provider-owned operations.
 - unauthenticated user can only query `public_provider_profiles` and not private provider columns.
+- Provider Owner cannot mutate Provider type or slug through profile settings.
+- Staff cannot mutate Provider operating fields or Service Modes.
+- failed Service Mode persistence rolls back Provider onboarding and replacement.
+- invitation detail lookup excludes private Provider contact fields.
 - valid Tracking Code returns only public projection.
 - invalid Tracking Code reveals minimal information.
 - Internal Notes never enter public output.

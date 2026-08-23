@@ -105,13 +105,18 @@ Governs secure, Owner-authorized Staff onboarding (LD-01).
 
 Public projection exposing only public-safe fields for active providers accepting requests.
 
-- `id`, `provider_type`, `display_name`, `slug`, `description`, `profile_image_url`, `public_address`, `service_area`, `supported_devices`, `accepting_requests`, `created_at`
+- `id`, `provider_type`, `display_name`, `slug`, `description`, `profile_image_url`, `public_address`, `service_area`, `supported_devices`, `service_modes`, `accepting_requests`, `created_at`
+- excludes Providers where `accepting_requests = false`
+- excludes internal contact fields and `updated_at`
 
 ### 6. `provider_service_modes`
 
 Repeating relation of supported modes (`DROP_OFF`, `MEETUP`, `HOME_SERVICE`, `OTHER`).
 
 - `PRIMARY KEY(provider_id, mode)`
+- optional `details` with a 240-character check
+- authenticated members have read access for their Provider
+- direct authenticated writes are denied; Owners use atomic `set_provider_service_modes(jsonb)` replacement
 
 ### 7. `repair_requests`
 
@@ -167,11 +172,17 @@ npx supabase db push
 - **Prohibited Client Self-Assignment**: Direct client `INSERT` on `provider_memberships` is strictly forbidden.
 - **Atomic SECURITY DEFINER Procedures**:
   - `create_provider_with_owner(...)`: Transactionally provisions new Provider, initial business profile, person profile, and links caller as explicit `OWNER`.
+  - `create_provider_with_owner_and_modes(...)`: Composes the accepted creation procedure with description/request configuration and Service Mode replacement in the same transaction.
+  - `set_provider_service_modes(service_modes)`: Owner-only atomic replacement of repeating Service Mode configuration.
   - `accept_staff_invitation(token_hash, display_name, contact_phone)`: Transactionally locks invitation, verifies SHOP provider and single active membership invariant, creates person profile and `STAFF` membership, and marks token accepted.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
   SET search_path = public, pg_temp;
   ```
+- Authenticated Provider profile updates use column-level grants. Provider type,
+  slug, IDs, ownership, and timestamps are not client-editable.
+- Database triggers maintain `updated_at` for `providers` and
+  `provider_user_profiles`.
 
 ### 5. Supabase CLI & State Hygiene
 

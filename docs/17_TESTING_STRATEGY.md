@@ -23,8 +23,13 @@ Unit tests cover deterministic helpers and domain rules without a live database.
 - public address is optional where allowed;
 - supported Service Modes are persisted correctly;
 - `OTHER` mode details can be recorded;
+- duplicate/invalid Service Modes roll back the complete Provider onboarding operation;
+- Service Mode replacement is atomic and direct table mutation is denied;
 - accepting Requests can be enabled/disabled;
+- Owners may change operating fields but cannot change Provider type or slug;
+- Staff may update only their own person profile, not Provider configuration;
 - staff invitation creation, one-way SHA-256 token hashing, single-use acceptance, and revocation;
+- invitation detail lookup excludes private Provider contact information;
 - public provider lookup by slug or ID queries `public_provider_profiles` projection only.
 
 ### Repair Requests

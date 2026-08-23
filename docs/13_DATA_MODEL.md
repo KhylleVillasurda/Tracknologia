@@ -61,6 +61,11 @@ A `SHOP` may have only one Provider User, including an owner who is also the wor
 
 An `INDEPENDENT` Provider may leave `public_address` null and use `service_area` instead.
 
+`provider_type` and `slug` are stable Provider identity fields. Owner settings
+may change the operating/profile columns, but authenticated clients do not have
+column privileges to rewrite identity, ownership, or timestamps. The database
+maintains `updated_at` on Provider profile changes.
+
 ## provider_memberships
 
 ```text
@@ -101,9 +106,12 @@ mode                  DROP_OFF | MEETUP | HOME_SERVICE | OTHER
 details               text nullable
 
 PRIMARY KEY(provider_id, mode)
+CHECK(details IS NULL OR char_length(details) <= 240)
 ```
 
-A Provider may support several modes; therefore this remains a separate repeating relation.
+A Provider may support several modes; therefore this remains a separate
+repeating relation. Authenticated members may read their Provider's modes, but
+only Owners may atomically replace them through `set_provider_service_modes`.
 
 ## repair_requests
 

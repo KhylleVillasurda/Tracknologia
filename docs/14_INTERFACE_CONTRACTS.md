@@ -12,6 +12,59 @@ Returns the authenticated user's current Provider context, including at minimum 
 
 Failure: unauthenticated or no valid Provider membership.
 
+## Providers — createProvider
+
+```text
+createProvider(input) -> { providerId, membershipId, slug }
+```
+
+Guarantees:
+
+- caller is authenticated and has no existing Provider membership;
+- Provider, canonical owner profile, `OWNER` membership, operating profile,
+  and initial Service Modes commit atomically;
+- Provider type is `SHOP` or `INDEPENDENT`;
+- raw browser-supplied Provider/user ownership identifiers are not accepted;
+- an invalid or duplicate Service Mode rolls back the entire onboarding write.
+
+## Providers — updateProviderProfile
+
+```text
+updateProviderProfile(input) -> Provider
+```
+
+Guarantees:
+
+- caller is the authenticated `OWNER` of the Provider derived from membership;
+- only operating/profile columns are editable;
+- Provider `id`, `provider_type`, `slug`, ownership, and timestamps cannot be
+  changed through the client-facing update grant;
+- server-side validation bounds all public text, URL, email, and device inputs.
+
+## Providers — setServiceModes
+
+```text
+setServiceModes(modes) -> ProviderServiceMode[]
+```
+
+Guarantees:
+
+- only the authenticated Provider `OWNER` may replace modes;
+- supported values are `DROP_OFF`, `MEETUP`, `HOME_SERVICE`, and `OTHER`;
+- `(provider_id, mode)` remains unique;
+- replacement commits atomically, so invalid input cannot leave partial modes;
+- direct authenticated insert/update/delete on `provider_service_modes` is denied.
+
+## Providers — updateCurrentProviderUserProfile
+
+```text
+updateCurrentProviderUserProfile(input) -> ProviderUserProfile
+```
+
+Guarantees the authenticated user can update only their canonical person
+profile's display name, contact phone, and avatar URL. It does not change role,
+membership, Provider identity, or another user's profile.
+
 ## Repair Requests — submitRepairRequest
 
 ```text
