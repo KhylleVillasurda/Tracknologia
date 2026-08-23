@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import {
   listRepairRequests,
+  repairRequestPageSchema,
   repairRequestStatusEnum,
   type RepairRequestStatus,
 } from "@/features/repair-requests";
@@ -49,18 +50,40 @@ function deviceLabel(
   return [brand, model].filter(Boolean).join(" ") || deviceType;
 }
 
+function firstSearchParam(value?: string | string[]) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function repairRequestInboxHref(status?: RepairRequestStatus, page = 1) {
+  const params = new URLSearchParams();
+  if (status) {
+    params.set("status", status);
+  }
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+
+  const query = params.toString();
+  return `/dashboard/requests${query ? `?${query}` : ""}`;
+}
+
 export default async function RepairRequestsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string | string[] }>;
+  searchParams: Promise<{
+    status?: string | string[];
+    page?: string | string[];
+  }>;
 }) {
   const params = await searchParams;
-  const rawStatus = Array.isArray(params.status)
-    ? params.status[0]
-    : params.status;
+  const rawStatus = firstSearchParam(params.status);
   const parsedStatus = repairRequestStatusEnum.safeParse(rawStatus);
   const status = parsedStatus.success ? parsedStatus.data : undefined;
-  const requests = await listRepairRequests(status ? { status } : {});
+  const parsedPage = repairRequestPageSchema.safeParse(
+    firstSearchParam(params.page),
+  );
+  const page = parsedPage.success ? parsedPage.data : 1;
+  const requestPage = await listRepairRequests({ status, page });
 
   return (
     <div className="space-y-6">
@@ -78,9 +101,7 @@ export default async function RepairRequestsPage({
         {FILTERS.map((filter) => {
           const active =
             filter.status === status || (!filter.status && !status);
-          const href = filter.status
-            ? `/dashboard/requests?status=${filter.status}`
-            : "/dashboard/requests";
+          const href = repairRequestInboxHref(filter.status);
 
           return (
             <Link
@@ -99,7 +120,7 @@ export default async function RepairRequestsPage({
         })}
       </div>
 
-      {requests.length === 0 ? (
+      {requestPage.items.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">No matching Requests</CardTitle>
@@ -110,7 +131,7 @@ export default async function RepairRequestsPage({
         </Card>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {requests.map((request) => (
+          {requestPage.items.map((request) => (
             <Card key={request.id} className="flex flex-col">
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between gap-3">
@@ -158,6 +179,61 @@ export default async function RepairRequestsPage({
           ))}
         </div>
       )}
+
+      {requestPage.hasPrevious || requestPage.hasNext ? (
+        <nav
+          className="flex items-center justify-between gap-3"
+          aria-label="Repair Request pagination"
+        >
+          {requestPage.hasPrevious ? (
+            <Link
+              href={repairRequestInboxHref(status, requestPage.page - 1)}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "min-w-24",
+              )}
+            >
+              Previous
+            </Link>
+          ) : (
+            <span
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "pointer-events-none min-w-24 opacity-50",
+              )}
+              aria-disabled="true"
+            >
+              Previous
+            </span>
+          )}
+
+          <span className="text-sm tabular-nums text-muted-foreground">
+            Page {requestPage.page}
+          </span>
+
+          {requestPage.hasNext ? (
+            <Link
+              href={repairRequestInboxHref(status, requestPage.page + 1)}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "min-w-24",
+              )}
+            >
+              Next
+            </Link>
+          ) : (
+            <span
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "pointer-events-none min-w-24 opacity-50",
+              )}
+              aria-disabled="true"
+            >
+              Next
+            </span>
+          )}
+        </nav>
+      ) : null}
     </div>
   );
 }

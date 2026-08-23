@@ -42,8 +42,13 @@ Unit tests cover deterministic helpers and domain rules without a live database.
 - anonymous callers cannot read Request rows directly;
 - Request belongs only to selected Provider;
 - Provider A cannot list or act on Provider B Request;
+- list validation accepts positive pages and rejects unsafe page values;
+- pagination fetches one look-ahead row, derives Previous/Next correctly, and
+  queries beyond the former 100-row cap;
 - accept creates exactly one Repair;
 - concurrent/repeated accept does not create duplicate Repair;
+- concurrent accept versus decline commits exactly one terminal outcome;
+- accept-after-decline and decline-after-accept preserve the winning state;
 - decline creates no Repair;
 - accepted/declined Request cannot be processed again;
 - Provider can correct customer draft values on acceptance;
@@ -96,10 +101,15 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - public Request submission projection and direct-table denial;
 - closed Provider and unsupported Service Mode rejection;
 - Provider Request read/decision isolation;
+- Provider Request pagination returns 25, 25, and 10 rows for 60 matching
+  Requests with stable ordering and no cross-Provider leakage;
+- cross-Provider acceptance and decline both return not-found behavior without
+  creating a Repair or Status Event;
 - Tracking Code uniqueness;
 - `repair_request_id` one-to-one constraint;
 - atomic Request acceptance plus initial Status Event;
-- concurrent Request decision serialization;
+- concurrent accept-versus-accept and accept-versus-decline serialization;
+- opposite-terminal retries preserve the original terminal outcome;
 - Staff invitation single-use, non-expired, and non-revoked constraints;
 - Staff invitation restricted strictly to `SHOP` providers in database transaction;
 - User cannot acquire a second active provider membership in MVP;

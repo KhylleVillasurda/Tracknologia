@@ -77,7 +77,7 @@ Manage customer-submitted pre-acceptance Requests for exactly one Provider.
 
 ```ts
 submitRepairRequest(providerSlug, input): RepairRequestReceipt
-listRepairRequests(filter?): RepairRequestSummary[]
+listRepairRequests(options?): RepairRequestPage
 getRepairRequest(requestId): RepairRequestDetail | null
 acceptRepairRequest(requestId, verifiedInput): AcceptedRepairResult
 declineRepairRequest(requestId): RepairRequestDetail
@@ -87,6 +87,11 @@ Provider-side Interfaces derive `ProviderContext` from the authenticated
 Supabase session. Browser-supplied Provider/user identifiers are not part of
 the mutation or query contracts. Persistence is server-only and hides direct
 queries plus the submission/decision RPC mechanics.
+
+The list Interface accepts an optional status and positive page number. It
+returns at most 25 Provider-scoped summaries with `hasPrevious` and `hasNext`
+flags. The Module hides offset/range calculation, deterministic
+`submitted_at DESC, id DESC` ordering, and the one-row look-ahead query.
 
 ### Invariants
 

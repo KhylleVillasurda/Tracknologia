@@ -100,9 +100,14 @@ export const submitRepairRequestSchema = z
     }
   });
 
-export const repairRequestFilterSchema = z
-  .object({ status: repairRequestStatusEnum.optional() })
-  .default({});
+export const repairRequestPageSchema = z.coerce.number().int().positive();
+
+export const repairRequestListOptionsSchema = z
+  .object({
+    status: repairRequestStatusEnum.optional(),
+    page: z.number().int().positive().default(1),
+  })
+  .default({ page: 1 });
 
 export type SubmitRepairRequestSchemaInput = z.infer<
   typeof submitRepairRequestSchema
