@@ -11,6 +11,7 @@ import {
   assertSupabaseSuccess,
   createAdminClient,
   createAnonClient,
+  createAuthenticatedClient,
   createTestUser,
   requireDbConfig,
   signInTestUser,
@@ -343,6 +344,318 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       await cleanupFixture(adminClient, {
         providerIds: createdProviderIds,
         userIds: [user.user.id],
+      });
+    }
+  });
+
+  it("Staff cannot change Provider settings or another profile but can update their own profile", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("settings-owner"),
+      password,
+    );
+    const staff = await createTestUser(
+      adminClient,
+      uniqueEmail("settings-staff"),
+      password,
+    );
+    const ownerAuth = await signInTestUser(owner.email, password);
+    const staffAuth = await signInTestUser(staff.email, password);
+    const ownerDisplayName = uniqueName("Settings Owner");
+    const staffDisplayName = uniqueName("Settings Staff");
+    const updatedStaffDisplayName = uniqueName("Updated Settings Staff");
+    const attemptedOwnerDisplayName = uniqueName("Hijacked Settings Owner");
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(ownerAuth.client, {
+        providerType: "SHOP",
+        ownerDisplayName,
+      });
+      createdProviderIds.push(provider.providerId);
+
+      const invitation = await createInvitationAs(
+        ownerAuth.client,
+        staff.email,
+      );
+      const accepted = await acceptInvitationAs(
+        staffAuth.client,
+        invitation.tokenHash,
+        staffDisplayName,
+      );
+      expect(accepted.error).toBeNull();
+
+      assertSupabaseSuccess(
+        await ownerAuth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "seed Provider Service Modes",
+      );
+
+      const providerUpdate = await staffAuth.client
+        .from("providers")
+        .update({ description: "Staff must not change this" })
+        .eq("id", provider.providerId)
+        .select("id");
+      expect(providerUpdate.error).toBeNull();
+      expect(providerUpdate.data).toEqual([]);
+
+      const modeUpdate = await staffAuth.client.rpc(
+        "set_provider_service_modes",
+        {
+          p_service_modes: [{ mode: "HOME_SERVICE" }],
+        },
+      );
+      expect(modeUpdate.error).not.toBeNull();
+
+      const ownProfileUpdate = assertSupabaseMutation(
+        await staffAuth.client
+          .from("provider_user_profiles")
+          .update({
+            display_name: updatedStaffDisplayName,
+            contact_phone: "+63 900 000 0000",
+          })
+          .eq("user_id", staff.user.id)
+          .select("user_id, display_name, contact_phone"),
+        "update Staff own person profile",
+      );
+      expect(ownProfileUpdate.data?.[0]).toMatchObject({
+        user_id: staff.user.id,
+        display_name: updatedStaffDisplayName,
+        contact_phone: "+63 900 000 0000",
+      });
+
+      const otherProfileUpdate = await staffAuth.client
+        .from("provider_user_profiles")
+        .update({ display_name: attemptedOwnerDisplayName })
+        .eq("user_id", owner.user.id)
+        .select("user_id");
+      expect(otherProfileUpdate.error).toBeNull();
+      expect(otherProfileUpdate.data).toEqual([]);
+
+      const durableProvider = assertSupabaseSuccess(
+        await adminClient
+          .from("providers")
+          .select("description")
+          .eq("id", provider.providerId)
+          .single(),
+        "read Provider after Staff settings denial",
+      );
+      expect(durableProvider.data?.description).toBeNull();
+
+      const durableModes = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_service_modes")
+          .select("mode")
+          .eq("provider_id", provider.providerId),
+        "read Service Modes after Staff replacement denial",
+      );
+      expect(durableModes.data?.map((row) => row.mode)).toEqual(["DROP_OFF"]);
+
+      const durableProfiles = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_user_profiles")
+          .select("user_id, display_name, contact_phone")
+          .in("user_id", [owner.user.id, staff.user.id]),
+        "read person profiles after Staff profile updates",
+      );
+      const profilesByUserId = new Map(
+        durableProfiles.data?.map((profile) => [profile.user_id, profile]),
+      );
+      expect(profilesByUserId.get(owner.user.id)?.display_name).toBe(
+        ownerDisplayName,
+      );
+      expect(profilesByUserId.get(staff.user.id)).toMatchObject({
+        display_name: updatedStaffDisplayName,
+        contact_phone: "+63 900 000 0000",
+      });
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id, staff.user.id],
+      });
+    }
+  });
+
+  it("failed standalone Service Mode replacement preserves the previous set", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("replacement-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(auth.client);
+      createdProviderIds.push(provider.providerId);
+
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "seed replacement rollback Service Modes",
+      );
+
+      const invalidReplacement = await auth.client.rpc(
+        "set_provider_service_modes",
+        {
+          p_service_modes: [{ mode: "MEETUP" }, { mode: "MEETUP" }],
+        },
+      );
+      expect(invalidReplacement.error).not.toBeNull();
+
+      const durableModes = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_service_modes")
+          .select("mode")
+          .eq("provider_id", provider.providerId),
+        "read Service Modes after failed standalone replacement",
+      );
+      expect(durableModes.data?.map((row) => row.mode)).toEqual(["DROP_OFF"]);
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("direct profile writes cannot bypass durable Provider input bounds", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("bounds-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(auth.client);
+      createdProviderIds.push(provider.providerId);
+
+      const shortName = await auth.client
+        .from("providers")
+        .update({ display_name: "A" })
+        .eq("id", provider.providerId)
+        .select("id");
+      expect(shortName.error).not.toBeNull();
+
+      const longDescription = await auth.client
+        .from("providers")
+        .update({ description: "x".repeat(1001) })
+        .eq("id", provider.providerId)
+        .select("id");
+      expect(longDescription.error).not.toBeNull();
+
+      const tooManyDevices = await auth.client
+        .from("providers")
+        .update({
+          supported_devices: Array.from(
+            { length: 21 },
+            (_, index) => `Device ${index}`,
+          ),
+        })
+        .eq("id", provider.providerId)
+        .select("id");
+      expect(tooManyDevices.error).not.toBeNull();
+
+      const longDeviceName = await auth.client
+        .from("providers")
+        .update({ supported_devices: ["x".repeat(81)] })
+        .eq("id", provider.providerId)
+        .select("id");
+      expect(longDeviceName.error).not.toBeNull();
+
+      const longAvatarUrl = await auth.client
+        .from("provider_user_profiles")
+        .update({ avatar_url: "x".repeat(2049) })
+        .eq("user_id", owner.user.id)
+        .select("user_id");
+      expect(longAvatarUrl.error).not.toBeNull();
+
+      const durableProvider = assertSupabaseSuccess(
+        await adminClient
+          .from("providers")
+          .select("display_name, description, supported_devices")
+          .eq("id", provider.providerId)
+          .single(),
+        "read Provider after bounded direct writes",
+      );
+      expect(durableProvider.data).toMatchObject({
+        description: null,
+        supported_devices: [],
+      });
+      expect(durableProvider.data?.display_name).not.toBe("A");
+
+      const durableProfile = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_user_profiles")
+          .select("avatar_url")
+          .eq("user_id", owner.user.id)
+          .single(),
+        "read person profile after bounded direct write",
+      );
+      expect(durableProfile.data?.avatar_url).toBeNull();
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("concurrent Service Mode replacements leave exactly one submitted set", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("mode-race-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const clientA = createAuthenticatedClient(auth.session);
+    const clientB = createAuthenticatedClient(auth.session);
+    const submittedSetA = ["DROP_OFF", "MEETUP"].sort();
+    const submittedSetB = ["HOME_SERVICE", "OTHER"].sort();
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(auth.client);
+      createdProviderIds.push(provider.providerId);
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        assertSupabaseSuccess(
+          await auth.client.rpc("set_provider_service_modes", {
+            p_service_modes: [],
+          }),
+          `clear Service Modes before concurrent attempt ${attempt + 1}`,
+        );
+
+        const [replacementA, replacementB] = await Promise.all([
+          clientA.rpc("set_provider_service_modes", {
+            p_service_modes: submittedSetA.map((mode) => ({ mode })),
+          }),
+          clientB.rpc("set_provider_service_modes", {
+            p_service_modes: submittedSetB.map((mode) => ({ mode })),
+          }),
+        ]);
+        expect(replacementA.error).toBeNull();
+        expect(replacementB.error).toBeNull();
+
+        const durableModes = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_service_modes")
+            .select("mode")
+            .eq("provider_id", provider.providerId),
+          `read concurrent Service Modes after attempt ${attempt + 1}`,
+        );
+        const finalModes =
+          durableModes.data?.map((row) => row.mode).sort() ?? [];
+        expect([submittedSetA, submittedSetB]).toContainEqual(finalModes);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id],
       });
     }
   });

@@ -37,7 +37,69 @@ REVOKE INSERT, UPDATE, DELETE
   ON public.provider_service_modes
   FROM authenticated, anon;
 
--- 2. Keep timestamps trustworthy and server-maintained.
+-- 2. Keep profile storage within the same durable size bounds as the Provider
+-- Module. Syntax normalization (such as URL/email shape and device de-duplication)
+-- remains application-owned, while PostgreSQL prevents oversized direct writes.
+CREATE FUNCTION public.provider_supported_devices_are_valid(
+  p_devices TEXT[]
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT p_devices IS NULL OR (
+    cardinality(p_devices) <= 20
+    AND NOT EXISTS (
+      SELECT 1
+      FROM unnest(p_devices) AS device(value)
+      WHERE value IS NULL
+        OR char_length(trim(value)) < 1
+        OR char_length(value) > 80
+    )
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.provider_supported_devices_are_valid(TEXT[])
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.provider_supported_devices_are_valid(TEXT[])
+  TO authenticated, service_role;
+
+ALTER TABLE public.providers
+  DROP CONSTRAINT check_providers_display_name_nonblank,
+  ADD CONSTRAINT check_providers_display_name_length
+    CHECK (
+      char_length(trim(display_name)) >= 2
+      AND char_length(display_name) <= 120
+    ),
+  ADD CONSTRAINT check_providers_description_length
+    CHECK (description IS NULL OR char_length(description) <= 1000),
+  ADD CONSTRAINT check_providers_profile_image_url_length
+    CHECK (profile_image_url IS NULL OR char_length(profile_image_url) <= 2048),
+  ADD CONSTRAINT check_providers_contact_phone_length
+    CHECK (contact_phone IS NULL OR char_length(contact_phone) <= 40),
+  ADD CONSTRAINT check_providers_contact_email_length
+    CHECK (contact_email IS NULL OR char_length(contact_email) <= 254),
+  ADD CONSTRAINT check_providers_public_address_length
+    CHECK (public_address IS NULL OR char_length(public_address) <= 300),
+  ADD CONSTRAINT check_providers_service_area_length
+    CHECK (service_area IS NULL OR char_length(service_area) <= 300),
+  ADD CONSTRAINT check_providers_supported_devices
+    CHECK (public.provider_supported_devices_are_valid(supported_devices));
+
+ALTER TABLE public.provider_user_profiles
+  DROP CONSTRAINT check_user_profiles_display_name_nonblank,
+  ADD CONSTRAINT check_user_profiles_display_name_length
+    CHECK (
+      char_length(trim(display_name)) >= 2
+      AND char_length(display_name) <= 120
+    ),
+  ADD CONSTRAINT check_user_profiles_contact_phone_length
+    CHECK (contact_phone IS NULL OR char_length(contact_phone) <= 40),
+  ADD CONSTRAINT check_user_profiles_avatar_url_length
+    CHECK (avatar_url IS NULL OR char_length(avatar_url) <= 2048);
+
+-- 3. Keep timestamps trustworthy and server-maintained.
 CREATE OR REPLACE FUNCTION public.set_updated_at()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -59,7 +121,7 @@ CREATE TRIGGER set_provider_user_profiles_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION public.set_updated_at();
 
--- 3. Replace broad table-level writes with the exact editable profile columns.
+-- 4. Replace broad table-level writes with the exact editable profile columns.
 -- Provider type, slug, ids, ownership, and timestamps are not profile settings.
 REVOKE UPDATE ON public.providers FROM authenticated;
 GRANT UPDATE (
@@ -81,7 +143,7 @@ GRANT UPDATE (
   avatar_url
 ) ON public.provider_user_profiles TO authenticated;
 
--- 4. Atomically replace the current Owner's Provider Service Modes.
+-- 5. Atomically replace the current Owner's Provider Service Modes.
 CREATE OR REPLACE FUNCTION public.set_provider_service_modes(
   p_service_modes JSONB
 )
@@ -125,6 +187,13 @@ BEGIN
     RAISE EXCEPTION 'Only Provider Owners can configure Service Modes';
   END IF;
 
+  -- Serialize whole-set replacements for this Provider. Without this lock,
+  -- concurrent DELETE + INSERT calls can both succeed and leave a mixed union.
+  PERFORM 1
+  FROM public.providers p
+  WHERE p.id = v_provider_id
+  FOR UPDATE;
+
   DELETE FROM public.provider_service_modes psm
   WHERE psm.provider_id = v_provider_id;
 
@@ -159,7 +228,7 @@ $$;
 REVOKE ALL ON FUNCTION public.set_provider_service_modes(JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.set_provider_service_modes(JSONB) TO authenticated;
 
--- 5. Preserve the accepted onboarding RPC and compose it with Service Mode
+-- 6. Preserve the accepted onboarding RPC and compose it with Service Mode
 -- replacement inside one transaction.
 CREATE OR REPLACE FUNCTION public.create_provider_with_owner_and_modes(
   p_display_name TEXT,
@@ -246,7 +315,7 @@ GRANT EXECUTE ON FUNCTION public.create_provider_with_owner_and_modes(
   BOOLEAN
 ) TO authenticated;
 
--- 6. Public Provider reads remain a strict allow-list and now include the safe
+-- 7. Public Provider reads remain a strict allow-list and now include the safe
 -- operating modes needed by provider-specific Repair Request pages.
 DROP VIEW public.public_provider_profiles;
 
@@ -282,7 +351,7 @@ WHERE p.accepting_requests = true;
 
 GRANT SELECT ON public.public_provider_profiles TO anon, authenticated, service_role;
 
--- 7. Invitation possession may reveal the intended Shop identity, but not its
+-- 8. Invitation possession may reveal the intended Shop identity, but not its
 -- private business contact fields.
 DROP FUNCTION public.get_invitation_details(TEXT);
 
