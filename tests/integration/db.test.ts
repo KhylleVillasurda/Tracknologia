@@ -131,6 +131,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       expect(projection.data[0]).not.toHaveProperty("contact_email");
       expect(projection.data[0]).toHaveProperty("display_name");
       expect(projection.data[0]).toHaveProperty("accepting_requests");
+      expect(projection.data[0]).toHaveProperty("service_modes");
     }
   });
 
@@ -195,6 +196,153 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       await cleanupFixture(adminClient, {
         providerIds: createdProviderIds,
         userIds: [userA.user.id, userB.user.id],
+      });
+    }
+  });
+
+  it("Provider creation with operating configuration is atomic", async () => {
+    const user = await createTestUser(
+      adminClient,
+      uniqueEmail("configured-owner"),
+      password,
+    );
+    const auth = await signInTestUser(user.email, password);
+    const failedDisplayName = uniqueName("Invalid Configured Provider");
+
+    try {
+      const failed = await auth.client.rpc(
+        "create_provider_with_owner_and_modes",
+        {
+          p_display_name: failedDisplayName,
+          p_provider_type: "SHOP",
+          p_owner_display_name: uniqueName("Configured Owner"),
+          p_owner_contact_phone: null,
+          p_description: "Should roll back",
+          p_contact_email: null,
+          p_contact_phone: null,
+          p_public_address: null,
+          p_service_area: null,
+          p_supported_devices: [],
+          p_service_modes: [{ mode: "DROP_OFF" }, { mode: "DROP_OFF" }],
+          p_accepting_requests: true,
+        },
+      );
+      expect(failed.error).not.toBeNull();
+
+      const providers = assertSupabaseSuccess(
+        await adminClient
+          .from("providers")
+          .select("id")
+          .eq("display_name", failedDisplayName),
+        "read failed configured Provider",
+      );
+      const profiles = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_user_profiles")
+          .select("user_id")
+          .eq("user_id", user.user.id),
+        "read configured Provider profile after rollback",
+      );
+      const memberships = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_memberships")
+          .select("id")
+          .eq("user_id", user.user.id),
+        "read configured Provider membership after rollback",
+      );
+
+      expect(providers.data).toEqual([]);
+      expect(profiles.data).toEqual([]);
+      expect(memberships.data).toEqual([]);
+    } finally {
+      await cleanupFixture(adminClient, { userIds: [user.user.id] });
+    }
+  });
+
+  it("Owner can update operating fields and Service Modes but not Provider identity", async () => {
+    const user = await createTestUser(
+      adminClient,
+      uniqueEmail("settings-owner"),
+      password,
+    );
+    const auth = await signInTestUser(user.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const created = assertSupabaseSuccess(
+        await auth.client.rpc("create_provider_with_owner_and_modes", {
+          p_display_name: uniqueName("Settings Provider"),
+          p_provider_type: "SHOP",
+          p_owner_display_name: uniqueName("Settings Owner"),
+          p_owner_contact_phone: null,
+          p_description: "Initial description",
+          p_contact_email: null,
+          p_contact_phone: null,
+          p_public_address: null,
+          p_service_area: "Cebu",
+          p_supported_devices: ["Smartphones"],
+          p_service_modes: [{ mode: "DROP_OFF" }],
+          p_accepting_requests: true,
+        }),
+        "create Provider with operating configuration",
+      );
+      const createdRow = Array.isArray(created.data)
+        ? created.data[0]
+        : created.data;
+      expect(createdRow).toBeTruthy();
+      createdProviderIds.push(createdRow.provider_id);
+
+      const identityUpdate = await auth.client
+        .from("providers")
+        .update({ provider_type: "INDEPENDENT" })
+        .eq("id", createdRow.provider_id);
+      expect(identityUpdate.error).not.toBeNull();
+
+      const operatingUpdate = assertSupabaseMutation(
+        await auth.client
+          .from("providers")
+          .update({
+            description: "Updated description",
+            accepting_requests: false,
+          })
+          .eq("id", createdRow.provider_id)
+          .select("description, accepting_requests"),
+        "update Provider operating profile",
+      );
+      expect(operatingUpdate.data?.[0]).toMatchObject({
+        description: "Updated description",
+        accepting_requests: false,
+      });
+
+      const modes = assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [
+            { mode: "MEETUP" },
+            { mode: "OTHER", details: "Courier collection" },
+          ],
+        }),
+        "replace Provider Service Modes",
+      );
+      expect(modes.data).toHaveLength(2);
+
+      const directModeInsert = await auth.client
+        .from("provider_service_modes")
+        .insert({ provider_id: createdRow.provider_id, mode: "DROP_OFF" });
+      expect(directModeInsert.error).not.toBeNull();
+
+      const durableIdentity = assertSupabaseSuccess(
+        await adminClient
+          .from("providers")
+          .select("provider_type")
+          .eq("id", createdRow.provider_id)
+          .single(),
+        "read Provider identity after denied update",
+      );
+      expect(durableIdentity.data?.provider_type).toBe("SHOP");
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [user.user.id],
       });
     }
   });
@@ -298,6 +446,22 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         expires_at: invite.expiresAt,
       });
       expect(row.data?.token_hash).toMatch(/^[a-f0-9]{64}$/);
+
+      const invitationDetails = assertSupabaseSuccess(
+        await anonClient.rpc("get_invitation_details", {
+          p_token_hash: invite.tokenHash,
+        }),
+        "read anonymous invitation projection",
+      );
+      const invitationDetail = Array.isArray(invitationDetails.data)
+        ? invitationDetails.data[0]
+        : invitationDetails.data;
+      expect(invitationDetail).toMatchObject({
+        provider_id: shop.providerId,
+        email: invite.email,
+      });
+      expect(invitationDetail).not.toHaveProperty("contact_email");
+      expect(invitationDetail).not.toHaveProperty("contact_phone");
 
       const deniedTokenHash = hashInvitationToken(
         `inv_${randomUUID()}_${randomUUID()}`,
