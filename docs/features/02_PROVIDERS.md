@@ -97,6 +97,15 @@ Owner-authorized, expiring, single-use invitations for Shop Staff onboarding:
 - `accepted_by_user_id`
 - `revoked_at`
 
+### `provider_service_modes`
+
+Repeating Provider-owned operating configuration:
+
+- `provider_id`;
+- `mode` (`DROP_OFF` | `MEETUP` | `HOME_SERVICE` | `OTHER`);
+- optional `details` (up to 240 characters);
+- primary key `(provider_id, mode)` prevents duplicate modes.
+
 ### `public_provider_profiles` (View)
 
 Restricted public projection containing only public-safe fields.
@@ -106,6 +115,9 @@ Restricted public projection containing only public-safe fields.
 ```ts
 // Commands
 createProvider(input: CreateProviderInput): Promise<{ providerId: string; membershipId: string; slug: string }>
+updateProviderProfile(input: UpdateProviderProfileInput): Promise<Provider>
+updateCurrentProviderUserProfile(input: UpdateProviderUserProfileInput): Promise<ProviderUserProfile>
+setServiceModes(modes: ProviderServiceMode[]): Promise<ProviderServiceMode[]>
 createStaffInvitation(input: { email: string }): Promise<CreateStaffInvitationResult>
 acceptStaffInvitation(input: AcceptStaffInvitationInput): Promise<{ providerId: string; membershipId: string; role: "STAFF" }>
 revokeStaffInvitation(invitationId: string): Promise<void>
@@ -117,6 +129,7 @@ getInvitationForOnboarding(rawToken: string): Promise<InvitationShopDetails | nu
 listTeamMembers(providerId: string): Promise<TeamMember[]>
 listPendingStaffInvitations(providerId: string): Promise<ProviderInvitation[]>
 getProviderUserProfile(userId: string): Promise<ProviderUserProfile | null>
+getProviderServiceModes(providerId: string): Promise<ProviderServiceMode[]>
 ```
 
 ## Core workflows
@@ -126,9 +139,9 @@ getProviderUserProfile(userId: string): Promise<ProviderUserProfile | null>
 ```text
 Authenticated User
        ↓
-createProvider({ displayName, providerType, ownerDisplayName, ownerContactPhone, ... })
+createProvider({ displayName, providerType, ownerDisplayName, serviceModes, ... })
        ↓ (atomic database transaction)
-INSERT providers + INSERT provider_user_profiles + INSERT provider_memberships (role: OWNER)
+INSERT providers + INSERT provider_user_profiles + INSERT provider_memberships (role: OWNER) + INSERT provider_service_modes
 ```
 
 ### 2. Shop Staff Onboarding (LD-01)
@@ -149,6 +162,22 @@ Validate token_hash, not expired, not revoked, not accepted, verify SHOP provide
 INSERT provider_user_profiles + INSERT provider_memberships (role: STAFF) + UPDATE provider_invitations
 ```
 
+### 3. Provider and person profile settings
+
+```text
+Authenticated Provider User
+       ↓
+updateCurrentProviderUserProfile(...) — edits only the caller's person profile
+
+Authenticated Provider Owner
+       ↓
+updateProviderProfile(...) — edits operating fields, not Provider identity
+setServiceModes(...) — atomically and serially replaces the Provider's supported modes
+```
+
+Provider IDs come from trusted membership context. Server Actions never accept a
+browser-supplied `providerId`, role, or user ID for these mutations.
+
 ## Important invariants
 
 1. Every Provider has exactly one type: `SHOP` or `INDEPENDENT`.
@@ -160,6 +189,11 @@ INSERT provider_user_profiles + INSERT provider_memberships (role: STAFF) + UPDA
 7. Public Provider information is strictly projected via `public_provider_profiles`.
 8. Raw invitation tokens are never stored in the database; only SHA-256 digests are persisted.
 9. Provider slugs are unique.
+10. Only an `OWNER` may update Provider operating configuration or Service Modes.
+11. Provider `id`, `provider_type`, `slug`, ownership, and timestamps are not editable profile fields.
+12. Service Mode replacement is atomic, serialized per Provider, and direct authenticated table writes are denied.
+13. Anonymous invitation lookup reveals the intended email and public Shop identity, but never private Provider contact fields.
+14. Database constraints enforce durable Provider/person-profile size bounds even when an Owner bypasses the application forms.
 
 ## Testing expectations
 
@@ -172,4 +206,11 @@ Test:
 - Staff cannot join a Provider without a valid invitation;
 - Staff invitations cannot be created or accepted for `INDEPENDENT` providers;
 - public lookup by slug returns only public-safe fields;
+- Provider creation rolls back when Service Mode persistence fails;
+- Owners can update operating fields but cannot mutate Provider identity fields;
+- Staff cannot update Provider configuration or Service Modes;
+- Staff can update only their own person profile;
+- Service Mode replacement prevents duplicates, partial state, and mixed results from concurrent replacements;
+- direct profile writes cannot bypass durable database size bounds;
+- anonymous invitation detail lookup excludes private contact fields;
 - cross-Provider isolation and RLS enforcement.

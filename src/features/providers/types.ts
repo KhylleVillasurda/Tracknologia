@@ -1,5 +1,11 @@
 export type ProviderType = "SHOP" | "INDEPENDENT";
 export type MembershipRole = "OWNER" | "STAFF";
+export type ServiceMode = "DROP_OFF" | "MEETUP" | "HOME_SERVICE" | "OTHER";
+
+export interface ProviderServiceMode {
+  mode: ServiceMode;
+  details?: string | null;
+}
 
 export interface Provider {
   id: string;
@@ -28,6 +34,7 @@ export interface PublicProviderProfile {
   publicAddress?: string | null;
   serviceArea?: string | null;
   supportedDevices: string[];
+  serviceModes: ProviderServiceMode[];
   acceptingRequests: boolean;
   createdAt: string;
 }
@@ -77,11 +84,32 @@ export interface CreateProviderInput {
   providerType: ProviderType;
   ownerDisplayName?: string;
   ownerContactPhone?: string;
+  description?: string;
   contactEmail?: string;
   contactPhone?: string;
   publicAddress?: string;
   serviceArea?: string;
   supportedDevices?: string[];
+  serviceModes?: ProviderServiceMode[];
+  acceptingRequests?: boolean;
+}
+
+export interface UpdateProviderProfileInput {
+  displayName: string;
+  description?: string;
+  profileImageUrl?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  publicAddress?: string;
+  serviceArea?: string;
+  supportedDevices?: string[];
+  acceptingRequests: boolean;
+}
+
+export interface UpdateProviderUserProfileInput {
+  displayName: string;
+  contactPhone?: string;
+  avatarUrl?: string;
 }
 
 export interface AcceptStaffInvitationInput {
@@ -98,6 +126,4 @@ export interface InvitationShopDetails {
   shopName: string;
   publicAddress?: string | null;
   serviceArea?: string | null;
-  contactEmail?: string | null;
-  contactPhone?: string | null;
 }

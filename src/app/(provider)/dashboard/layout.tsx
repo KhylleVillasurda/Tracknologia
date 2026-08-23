@@ -31,13 +31,13 @@ export default async function DashboardLayout({
       {/* Provider Dashboard Top Header */}
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur-xs">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-6">
             <Link href="/dashboard" className="flex items-center gap-2">
               <span className="text-xl font-bold tracking-tight text-foreground">
                 Tracknologia
               </span>
             </Link>
-            <nav className="flex items-center gap-4 text-sm font-medium">
+            <nav className="flex items-center gap-3 text-xs font-medium sm:gap-4 sm:text-sm">
               <Link
                 href="/dashboard"
                 className="text-foreground font-medium transition-colors hover:text-primary"
@@ -52,10 +52,16 @@ export default async function DashboardLayout({
                   Team & Staff
                 </Link>
               )}
+              <Link
+                href="/dashboard/settings"
+                className="text-muted-foreground font-medium transition-colors hover:text-foreground"
+              >
+                Settings
+              </Link>
             </nav>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <div className="hidden sm:flex flex-col items-end text-xs">
               <span className="font-medium text-foreground">
                 {context.providerName}

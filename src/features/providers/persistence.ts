@@ -6,10 +6,13 @@ import type {
   InvitationShopDetails,
   Provider,
   ProviderInvitation,
+  ProviderServiceMode,
   ProviderType,
   ProviderUserProfile,
   PublicProviderProfile,
   TeamMember,
+  UpdateProviderProfileInput,
+  UpdateProviderUserProfileInput,
 } from "./types";
 
 /**
@@ -24,20 +27,26 @@ export async function createProviderWithOwner(
   supabase: SupabaseClient,
   params: CreateProviderInput,
 ): Promise<{ providerId: string; membershipId: string; slug: string }> {
-  const { data, error } = await supabase.rpc("create_provider_with_owner", {
-    p_display_name: params.displayName,
-    p_provider_type: params.providerType,
-    p_owner_display_name: params.ownerDisplayName || null,
-    p_owner_contact_phone: params.ownerContactPhone || null,
-    p_contact_email: params.contactEmail || null,
-    p_contact_phone: params.contactPhone || null,
-    p_public_address: params.publicAddress || null,
-    p_service_area: params.serviceArea || null,
-    p_supported_devices:
-      params.supportedDevices && params.supportedDevices.length > 0
-        ? params.supportedDevices
-        : [],
-  });
+  const { data, error } = await supabase.rpc(
+    "create_provider_with_owner_and_modes",
+    {
+      p_display_name: params.displayName,
+      p_provider_type: params.providerType,
+      p_owner_display_name: params.ownerDisplayName || null,
+      p_owner_contact_phone: params.ownerContactPhone || null,
+      p_description: params.description || null,
+      p_contact_email: params.contactEmail || null,
+      p_contact_phone: params.contactPhone || null,
+      p_public_address: params.publicAddress || null,
+      p_service_area: params.serviceArea || null,
+      p_supported_devices:
+        params.supportedDevices && params.supportedDevices.length > 0
+          ? params.supportedDevices
+          : [],
+      p_service_modes: params.serviceModes ?? [],
+      p_accepting_requests: params.acceptingRequests ?? true,
+    },
+  );
 
   if (error) {
     throw new Error(`Failed to create provider: ${error.message}`);
@@ -112,9 +121,101 @@ export async function getInvitationDetailsByTokenHash(
     shopName: result.shop_name,
     publicAddress: result.public_address,
     serviceArea: result.service_area,
-    contactEmail: result.contact_email,
-    contactPhone: result.contact_phone,
   };
+}
+
+export async function updateProviderProfileRecord(
+  supabase: SupabaseClient,
+  providerId: string,
+  input: UpdateProviderProfileInput,
+): Promise<Provider> {
+  const { data, error } = await supabase
+    .from("providers")
+    .update({
+      display_name: input.displayName,
+      description: input.description || null,
+      profile_image_url: input.profileImageUrl || null,
+      contact_phone: input.contactPhone || null,
+      contact_email: input.contactEmail || null,
+      public_address: input.publicAddress || null,
+      service_area: input.serviceArea || null,
+      supported_devices: input.supportedDevices ?? [],
+      accepting_requests: input.acceptingRequests,
+    })
+    .eq("id", providerId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update provider profile: ${error.message}`);
+  }
+
+  return mapProvider(data);
+}
+
+export async function updateProviderUserProfileRecord(
+  supabase: SupabaseClient,
+  userId: string,
+  input: UpdateProviderUserProfileInput,
+): Promise<ProviderUserProfile> {
+  const { data, error } = await supabase
+    .from("provider_user_profiles")
+    .update({
+      display_name: input.displayName,
+      contact_phone: input.contactPhone || null,
+      avatar_url: input.avatarUrl || null,
+    })
+    .eq("user_id", userId)
+    .select(
+      "user_id, display_name, contact_phone, avatar_url, created_at, updated_at",
+    )
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update user profile: ${error.message}`);
+  }
+
+  return mapProviderUserProfile(data);
+}
+
+export async function replaceProviderServiceModes(
+  supabase: SupabaseClient,
+  modes: ProviderServiceMode[],
+): Promise<ProviderServiceMode[]> {
+  const { data, error } = await supabase.rpc("set_provider_service_modes", {
+    p_service_modes: modes,
+  });
+
+  if (error) {
+    throw new Error(`Failed to update Service Modes: ${error.message}`);
+  }
+
+  return (data || []).map(
+    (row: { mode: ProviderServiceMode["mode"]; details: string | null }) => ({
+      mode: row.mode,
+      details: row.details,
+    }),
+  );
+}
+
+export async function getProviderServiceModeRecords(
+  supabase: SupabaseClient,
+  providerId: string,
+): Promise<ProviderServiceMode[]> {
+  const { data, error } = await supabase
+    .from("provider_service_modes")
+    .select("mode, details")
+    .eq("provider_id", providerId)
+    .order("mode", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to fetch Service Modes: ${error.message}`);
+  }
+
+  return (data || []).map((row) => ({
+    mode: row.mode as ProviderServiceMode["mode"],
+    details: row.details,
+  }));
 }
 
 export async function insertStaffInvitationRecord(
@@ -268,21 +369,25 @@ export async function getProviderById(
     return null;
   }
 
+  return mapProvider(data);
+}
+
+function mapProvider(data: Record<string, unknown>): Provider {
   return {
-    id: data.id,
+    id: data.id as string,
     providerType: data.provider_type as ProviderType,
-    displayName: data.display_name,
-    slug: data.slug,
-    description: data.description,
-    profileImageUrl: data.profile_image_url,
-    contactPhone: data.contact_phone,
-    contactEmail: data.contact_email,
-    publicAddress: data.public_address,
-    serviceArea: data.service_area,
-    supportedDevices: data.supported_devices ?? [],
-    acceptingRequests: data.accepting_requests,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
+    displayName: data.display_name as string,
+    slug: data.slug as string,
+    description: data.description as string | null,
+    profileImageUrl: data.profile_image_url as string | null,
+    contactPhone: data.contact_phone as string | null,
+    contactEmail: data.contact_email as string | null,
+    publicAddress: data.public_address as string | null,
+    serviceArea: data.service_area as string | null,
+    supportedDevices: (data.supported_devices as string[] | null) ?? [],
+    acceptingRequests: data.accepting_requests as boolean,
+    createdAt: data.created_at as string,
+    updatedAt: data.updated_at as string,
   };
 }
 
@@ -322,6 +427,15 @@ export async function getPublicProviderProfile(
     publicAddress: data.public_address,
     serviceArea: data.service_area,
     supportedDevices: data.supported_devices ?? [],
+    serviceModes: (
+      (data.service_modes ?? []) as Array<{
+        mode: ProviderServiceMode["mode"];
+        details?: string | null;
+      }>
+    ).map((mode) => ({
+      mode: mode.mode,
+      details: mode.details ?? null,
+    })),
     acceptingRequests: data.accepting_requests,
     createdAt: data.created_at,
   };
@@ -347,12 +461,18 @@ export async function getProviderUserProfile(
     return null;
   }
 
+  return mapProviderUserProfile(data);
+}
+
+function mapProviderUserProfile(
+  data: Record<string, unknown>,
+): ProviderUserProfile {
   return {
-    userId: data.user_id,
-    displayName: data.display_name,
-    contactPhone: data.contact_phone,
-    avatarUrl: data.avatar_url,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
+    userId: data.user_id as string,
+    displayName: data.display_name as string,
+    contactPhone: data.contact_phone as string | null,
+    avatarUrl: data.avatar_url as string | null,
+    createdAt: data.created_at as string,
+    updatedAt: data.updated_at as string,
   };
 }

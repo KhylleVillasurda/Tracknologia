@@ -38,11 +38,15 @@ Own Provider profile and operating configuration.
 ### Conceptual interface
 
 ```ts
-createProvider(input): Provider
+createProvider(input): { providerId, membershipId, slug }
 getProvider(providerId): Provider
-getPublicProviderBySlug(slug): PublicProviderProfile
-updateProviderProfile(context, input): Provider
-setServiceModes(context, modes): ProviderServiceMode[]
+getPublicProvider(slugOrId): PublicProviderProfile
+getProviderServiceModes(providerId): ProviderServiceMode[]
+updateProviderProfile(input): Provider
+updateCurrentProviderUserProfile(input): ProviderUserProfile
+setServiceModes(modes): ProviderServiceMode[]
+createStaffInvitation(input): CreateStaffInvitationResult
+acceptStaffInvitation(input): AcceptedStaffMembership
 ```
 
 ### Owns
@@ -52,7 +56,14 @@ setServiceModes(context, modes): ProviderServiceMode[]
 - optional public address;
 - supported device categories;
 - request-acceptance flag;
-- supported Service Modes.
+- supported Service Modes;
+- canonical person profiles;
+- Owner-authorized Shop Staff invitation lifecycle.
+
+The Module derives Provider and user identity from authenticated context for
+mutations. Its persistence layer hides direct table queries and the narrow
+atomic RPCs used for Provider creation, Service Mode replacement, and Staff
+invitation acceptance.
 
 ## 3. Repair Requests Module
 

@@ -52,9 +52,8 @@ export function TeamClient({
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
             Staff invitations and multi-member teams are designed for{" "}
-            <strong>Repair Shops</strong>. If you decide to expand into a repair
-            workshop with multiple staff members in the future, you can upgrade
-            your provider profile.
+            <strong>Repair Shops</strong>. Independent Providers remain
+            single-member workspaces in the current product model.
           </p>
         </CardContent>
       </Card>

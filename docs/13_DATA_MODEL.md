@@ -37,6 +37,8 @@ updated_at            timestamptz
 ```
 
 This table holds the canonical person profile for authenticated Provider Users (both `OWNER` and `STAFF`). Membership contains the authorization link only.
+Database checks bound `display_name` to 2–120 characters, `contact_phone` to
+40 characters, and `avatar_url` to 2,048 characters.
 
 ## providers
 
@@ -60,6 +62,17 @@ updated_at            timestamptz
 A `SHOP` may have only one Provider User, including an owner who is also the working technician. No separate technician table is required.
 
 An `INDEPENDENT` Provider may leave `public_address` null and use `service_area` instead.
+
+`provider_type` and `slug` are stable Provider identity fields. Owner settings
+may change the operating/profile columns, but authenticated clients do not have
+column privileges to rewrite identity, ownership, or timestamps. The database
+maintains `updated_at` on Provider profile changes.
+
+Database checks preserve the Module's durable size limits: Provider names are
+2–120 characters, description is at most 1,000, image URLs are at most 2,048,
+phone/email are at most 40/254, address and Service Area are at most 300, and
+supported devices contain at most 20 nonblank values of at most 80 characters.
+Email/URL syntax and device de-duplication remain application validation rules.
 
 ## provider_memberships
 
@@ -101,9 +114,14 @@ mode                  DROP_OFF | MEETUP | HOME_SERVICE | OTHER
 details               text nullable
 
 PRIMARY KEY(provider_id, mode)
+CHECK(details IS NULL OR char_length(details) <= 240)
 ```
 
-A Provider may support several modes; therefore this remains a separate repeating relation.
+A Provider may support several modes; therefore this remains a separate
+repeating relation. Authenticated members may read their Provider's modes, but
+only Owners may atomically replace them through `set_provider_service_modes`.
+The function locks the Provider row so concurrent whole-set replacements are
+serialized and cannot leave a mixed union.
 
 ## repair_requests
 
@@ -236,6 +254,7 @@ Normalize Device only if reusable device history becomes a validated requirement
 - unique `(provider_id, user_id)` membership
 - unique `provider_invitations.token_hash`
 - primary/unique `(provider_id, mode)` service mode
+- Provider/person-profile size checks matching durable Module bounds
 - unique `repair_requests.reference_code`
 - index `repair_requests(provider_id, status, submitted_at)`
 - unique `repairs.tracking_code`

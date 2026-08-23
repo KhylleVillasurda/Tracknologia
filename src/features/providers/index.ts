@@ -4,6 +4,9 @@ export {
   createStaffInvitation,
   acceptStaffInvitation,
   revokeStaffInvitation,
+  setServiceModes,
+  updateCurrentProviderUserProfile,
+  updateProviderProfile,
   type CreateStaffInvitationResult,
 } from "./commands";
 
@@ -14,18 +17,27 @@ export {
   listTeamMembers,
   listPendingStaffInvitations,
   getProviderUserProfile,
+  getProviderServiceModes,
 } from "./queries";
 
 export {
   providerTypeEnum,
+  serviceModeEnum,
+  providerServiceModeSchema,
+  providerServiceModesSchema,
   createIndependentProviderSchema,
   createShopProviderSchema,
   staffInvitationSchema,
   acceptStaffInvitationSchema,
+  updateProviderProfileSchema,
+  updateProviderUserProfileSchema,
   type CreateIndependentProviderInput,
   type CreateShopProviderInput,
   type StaffInvitationInput,
   type AcceptStaffInvitationSchemaInput,
+  type ProviderServiceModeInput,
+  type UpdateProviderProfileSchemaInput,
+  type UpdateProviderUserProfileSchemaInput,
 } from "./schemas";
 
 export type {
@@ -36,8 +48,12 @@ export type {
   ProviderInvitation,
   ProviderType,
   MembershipRole,
+  ServiceMode,
+  ProviderServiceMode,
   TeamMember,
   CreateProviderInput,
+  UpdateProviderProfileInput,
+  UpdateProviderUserProfileInput,
   AcceptStaffInvitationInput,
   InvitationShopDetails,
 } from "./types";
