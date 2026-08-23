@@ -14,6 +14,20 @@ These instructions apply to all code, tests, database changes, configuration, an
 
 The goal is not to produce the most code or the most abstractions. The goal is to produce a small, coherent, maintainable system whose structure reflects Tracknologia's actual domain.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked in GitHub Issues for `Jacinth091/Tracknologia`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The Matt Pocock skill defaults are the canonical triage labels for this repo. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Tracknologia uses a single-context domain docs layout rooted at `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
 ---
 
 ## 1. Read Before Writing
