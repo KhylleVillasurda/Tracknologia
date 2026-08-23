@@ -59,12 +59,13 @@ Represents both Repair Shops and Independent Repairers. Direct table access is r
 
 - `id` (uuid, PK)
 - `provider_type` (`SHOP` | `INDEPENDENT`)
-- `display_name` (text)
+- `display_name` (text, 2–120 characters)
 - `slug` (text, UNIQUE)
-- `description`, `profile_image_url`, `contact_phone`, `contact_email`
-- `public_address` (nullable for Independent Repairers)
-- `service_area` (nullable)
-- `supported_devices` (text array)
+- `description` (maximum 1,000 characters), `profile_image_url` (maximum 2,048)
+- `contact_phone` (maximum 40), `contact_email` (maximum 254)
+- `public_address` (nullable, maximum 300 for Independent Repairers)
+- `service_area` (nullable, maximum 300)
+- `supported_devices` (text array, maximum 20 nonblank values of maximum 80 characters each)
 - `accepting_requests` (boolean, default true)
 - `created_at`, `updated_at` (timestamptz)
 
@@ -73,9 +74,9 @@ Represents both Repair Shops and Independent Repairers. Direct table access is r
 Canonical person profile for authenticated provider users (OWNER and STAFF).
 
 - `user_id` (uuid, PK, FK $\to$ `auth.users.id`)
-- `display_name` (text, required)
-- `contact_phone` (text, nullable)
-- `avatar_url` (text, nullable)
+- `display_name` (text, required, 2–120 characters)
+- `contact_phone` (text, nullable, maximum 40)
+- `avatar_url` (text, nullable, maximum 2,048)
 - `created_at`, `updated_at` (timestamptz)
 
 ### 3. `provider_memberships`
@@ -116,7 +117,7 @@ Repeating relation of supported modes (`DROP_OFF`, `MEETUP`, `HOME_SERVICE`, `OT
 - `PRIMARY KEY(provider_id, mode)`
 - optional `details` with a 240-character check
 - authenticated members have read access for their Provider
-- direct authenticated writes are denied; Owners use atomic `set_provider_service_modes(jsonb)` replacement
+- direct authenticated writes are denied; Owners use atomic, Provider-serialized `set_provider_service_modes(jsonb)` replacement
 
 ### 7. `repair_requests`
 
@@ -173,7 +174,7 @@ npx supabase db push
 - **Atomic SECURITY DEFINER Procedures**:
   - `create_provider_with_owner(...)`: Transactionally provisions new Provider, initial business profile, person profile, and links caller as explicit `OWNER`.
   - `create_provider_with_owner_and_modes(...)`: Composes the accepted creation procedure with description/request configuration and Service Mode replacement in the same transaction.
-  - `set_provider_service_modes(service_modes)`: Owner-only atomic replacement of repeating Service Mode configuration.
+  - `set_provider_service_modes(service_modes)`: Owner-only atomic replacement of repeating Service Mode configuration, serialized with a Provider-row lock.
   - `accept_staff_invitation(token_hash, display_name, contact_phone)`: Transactionally locks invitation, verifies SHOP provider and single active membership invariant, creates person profile and `STAFF` membership, and marks token accepted.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
@@ -181,6 +182,9 @@ npx supabase db push
   ```
 - Authenticated Provider profile updates use column-level grants. Provider type,
   slug, IDs, ownership, and timestamps are not client-editable.
+- Provider/person-profile checks enforce durable text lengths and supported-device
+  cardinality/element bounds; email/URL syntax and device de-duplication remain
+  application validation responsibilities.
 - Database triggers maintain `updated_at` for `providers` and
   `provider_user_profiles`.
 

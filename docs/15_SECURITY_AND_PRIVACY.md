@@ -48,7 +48,9 @@ Core invariants:
 > Authenticated clients receive only column-level `UPDATE` privileges for
 > Provider operating fields. Provider type, slug, ownership, IDs, and timestamps
 > are not client-editable. Direct Service Mode writes are denied; Owners replace
-> modes through the narrow atomic `set_provider_service_modes` function.
+> modes through the narrow atomic, Provider-serialized
+> `set_provider_service_modes` function. Database checks also bound direct
+> Provider/person-profile values that bypass application validation.
 
 Application authorization remains required even with RLS. RLS is defense in depth, not a replacement for domain checks.
 
@@ -161,7 +163,10 @@ Browser-safe public/publishable configuration is distinct from privileged server
 - unauthenticated user can only query `public_provider_profiles` and not private provider columns.
 - Provider Owner cannot mutate Provider type or slug through profile settings.
 - Staff cannot mutate Provider operating fields or Service Modes.
+- Staff can update only their own person profile, not another member's profile.
 - failed Service Mode persistence rolls back Provider onboarding and replacement.
+- concurrent Service Mode replacement leaves exactly one submitted set.
+- direct profile writes cannot exceed durable database size/cardinality bounds.
 - invitation detail lookup excludes private Provider contact fields.
 - valid Tracking Code returns only public projection.
 - invalid Tracking Code reveals minimal information.

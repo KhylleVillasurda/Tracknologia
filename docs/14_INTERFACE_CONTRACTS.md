@@ -39,7 +39,8 @@ Guarantees:
 - only operating/profile columns are editable;
 - Provider `id`, `provider_type`, `slug`, ownership, and timestamps cannot be
   changed through the client-facing update grant;
-- server-side validation bounds all public text, URL, email, and device inputs.
+- server-side validation bounds all public text, URL, email, and device inputs;
+- database checks enforce durable size/cardinality bounds for direct writes.
 
 ## Providers — setServiceModes
 
@@ -53,6 +54,8 @@ Guarantees:
 - supported values are `DROP_OFF`, `MEETUP`, `HOME_SERVICE`, and `OTHER`;
 - `(provider_id, mode)` remains unique;
 - replacement commits atomically, so invalid input cannot leave partial modes;
+- replacements for the same Provider are serialized, so concurrent calls leave
+  exactly one submitted set rather than a mixed union;
 - direct authenticated insert/update/delete on `provider_service_modes` is denied.
 
 ## Providers — updateCurrentProviderUserProfile

@@ -172,7 +172,7 @@ updateCurrentProviderUserProfile(...) — edits only the caller's person profile
 Authenticated Provider Owner
        ↓
 updateProviderProfile(...) — edits operating fields, not Provider identity
-setServiceModes(...) — atomically replaces the Provider's supported modes
+setServiceModes(...) — atomically and serially replaces the Provider's supported modes
 ```
 
 Provider IDs come from trusted membership context. Server Actions never accept a
@@ -191,8 +191,9 @@ browser-supplied `providerId`, role, or user ID for these mutations.
 9. Provider slugs are unique.
 10. Only an `OWNER` may update Provider operating configuration or Service Modes.
 11. Provider `id`, `provider_type`, `slug`, ownership, and timestamps are not editable profile fields.
-12. Service Mode replacement is atomic and direct authenticated table writes are denied.
+12. Service Mode replacement is atomic, serialized per Provider, and direct authenticated table writes are denied.
 13. Anonymous invitation lookup reveals the intended email and public Shop identity, but never private Provider contact fields.
+14. Database constraints enforce durable Provider/person-profile size bounds even when an Owner bypasses the application forms.
 
 ## Testing expectations
 
@@ -208,6 +209,8 @@ Test:
 - Provider creation rolls back when Service Mode persistence fails;
 - Owners can update operating fields but cannot mutate Provider identity fields;
 - Staff cannot update Provider configuration or Service Modes;
-- Service Mode replacement prevents duplicates and partial state;
+- Staff can update only their own person profile;
+- Service Mode replacement prevents duplicates, partial state, and mixed results from concurrent replacements;
+- direct profile writes cannot bypass durable database size bounds;
 - anonymous invitation detail lookup excludes private contact fields;
 - cross-Provider isolation and RLS enforcement.

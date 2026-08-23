@@ -54,7 +54,9 @@ Provider profile mutation is additionally constrained by column-level grants:
 Owners may edit operating/profile fields, but authenticated clients cannot
 rewrite Provider type, slug, ownership, IDs, or timestamps. Direct writes to
 `provider_service_modes` are denied; the Owner-only
-`set_provider_service_modes` RPC replaces modes atomically.
+`set_provider_service_modes` RPC replaces modes atomically and serializes
+same-Provider calls with a row lock. Database checks bound direct profile values
+that bypass application validation.
 
 ## Public Provider and invitation projections
 
@@ -130,7 +132,10 @@ At minimum test:
 - unauthenticated users cannot access Provider data;
 - Provider Owners cannot rewrite Provider type or slug through profile updates;
 - Staff cannot update Provider operating fields or Service Modes;
+- Staff can update only their own person profile;
 - failed configured onboarding and Service Mode replacement leave no partial state;
+- concurrent Service Mode replacement leaves exactly one submitted set;
+- direct profile writes cannot exceed durable database bounds;
 - anonymous Provider/invitation projections exclude private contact fields;
 - public tracking does not expose internal notes/contact data;
 - invalid tracking identifiers reveal no sensitive information;
