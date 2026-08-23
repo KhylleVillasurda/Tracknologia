@@ -145,7 +145,7 @@ function ProviderOperatingFields({
             Accept new Repair Requests
           </span>
           <span className="block text-xs text-muted-foreground">
-            Show this Provider on public request and discovery surfaces.
+            Show this Provider on public request surfaces.
           </span>
         </span>
       </label>
