@@ -96,11 +96,14 @@ SUBMITTED → DECLINED
 
 ```ts
 submitRepairRequest(providerSlug, input): RepairRequestReceipt
-listRepairRequests(context, filter?): RepairRequestSummary[]
-getRepairRequest(context, requestId): RepairRequestDetail
-acceptRepairRequest(context, requestId, verifiedInput): AcceptedRepairResult
-declineRepairRequest(context, requestId): RepairRequest
+listRepairRequests(filter?): RepairRequestSummary[]
+getRepairRequest(requestId): RepairRequestDetail | null
+acceptRepairRequest(requestId, verifiedInput): AcceptedRepairResult
+declineRepairRequest(requestId): RepairRequestDetail
 ```
+
+Provider-side Interfaces resolve trusted `ProviderContext` internally; callers
+do not supply Provider/user ownership identifiers.
 
 ## Public submission workflow
 
@@ -292,6 +295,34 @@ Test:
 - decline creates no Repair;
 - accepted/declined Request cannot be processed again;
 - customer data can be corrected during acceptance.
+
+## Implemented baseline
+
+Feature 03 is implemented through:
+
+- `src/features/repair-requests/` for validation, public submission,
+  Provider-scoped queries, acceptance, decline, and persistence mapping;
+- `src/features/repairs/` for the narrow Request-origin Repair creation seam;
+- `/p/[providerSlug]/request` for accountless submission and receipt display;
+- `/dashboard/requests` and `/dashboard/requests/[requestId]` for the private
+  Provider inbox, detail, verification, acceptance, and decline surfaces;
+- `20260823120000_create_repair_requests.sql` for the schema, RLS, restricted
+  RPCs, row locking, uniqueness, and atomic Request-to-Repair transaction.
+
+Anonymous callers cannot insert or read `repair_requests` directly. They can
+only call `submit_repair_request`, which verifies current Provider availability
+and configured Service Modes while holding a Provider row lock. Provider reads
+are RLS-scoped to membership. Acceptance and decline lock the Request so
+concurrent terminal decisions serialize safely.
+
+This change materializes the Repair columns and initial Status Event required
+for Request acceptance. It does not implement Feature 04's direct Repair
+creation, Repair list/detail, lifecycle transitions, Customer Updates, or
+public Tracking UI.
+
+Server Action payloads retain the framework's default size protection and Zod
+bounds. Dedicated rate limiting/CAPTCHA remains an operational hardening step
+to add only when a production exposure plan or observed abuse justifies it.
 
 ## Definition of done
 

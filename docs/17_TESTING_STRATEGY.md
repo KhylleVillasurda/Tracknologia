@@ -35,12 +35,25 @@ Unit tests cover deterministic helpers and domain rules without a live database.
 
 ### Repair Requests
 
+- Zod accepts bounded optional Request context and rejects invalid contact,
+  oversized, or inconsistent Service Mode input;
 - public submission creates `SUBMITTED` Request;
+- invalid/closed Provider and unsupported Service Mode submissions fail;
+- anonymous callers cannot read Request rows directly;
 - Request belongs only to selected Provider;
+- Provider A cannot list or act on Provider B Request;
 - accept creates exactly one Repair;
-- repeated accept does not create duplicate Repair;
+- concurrent/repeated accept does not create duplicate Repair;
 - decline creates no Repair;
-- Provider can correct customer draft values on acceptance.
+- accepted/declined Request cannot be processed again;
+- Provider can correct customer draft values on acceptance;
+- accepted Repair uses `CUSTOMER_REQUEST`, begins `IN_PROGRESS`, and has one
+  initial `NULL -> IN_PROGRESS` Status Event.
+
+Feature-local validation coverage lives in
+`src/features/repair-requests/repair-requests.test.ts` and
+`src/features/repairs/repairs.test.ts`. Database/RLS behavior is covered in
+`tests/integration/db.test.ts`.
 
 ### Repairs
 
@@ -80,8 +93,13 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - Staff own-profile permission and other-profile denial;
 - durable Provider/person-profile size and device-cardinality constraints;
 - Request Reference uniqueness;
+- public Request submission projection and direct-table denial;
+- closed Provider and unsupported Service Mode rejection;
+- Provider Request read/decision isolation;
 - Tracking Code uniqueness;
 - `repair_request_id` one-to-one constraint;
+- atomic Request acceptance plus initial Status Event;
+- concurrent Request decision serialization;
 - Staff invitation single-use, non-expired, and non-revoked constraints;
 - Staff invitation restricted strictly to `SHOP` providers in database transaction;
 - User cannot acquire a second active provider membership in MVP;

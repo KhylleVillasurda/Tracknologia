@@ -50,6 +50,11 @@ Enforce this twice:
 1. application authorization in Tracknologia features;
 2. PostgreSQL RLS policies as defense in depth.
 
+Feature 03 Provider queries include the trusted `provider_id` from
+`requireProviderContext()` and RLS independently checks
+`get_auth_user_provider_ids()`. Accept/decline RPCs derive `auth.uid()` again,
+hide cross-tenant rows as not found, and never trust URL/form ownership fields.
+
 Provider profile mutation is additionally constrained by column-level grants:
 Owners may edit operating/profile fields, but authenticated clients cannot
 rewrite Provider type, slug, ownership, IDs, or timestamps. Direct writes to
@@ -105,12 +110,29 @@ Never expose internal notes, private identifiers, contact data or complete Repai
 
 ## Public Repair Requests
 
-Public request forms need:
+Implemented controls:
 
 - server-side Zod validation;
-- request/body-size controls;
+- bounded database checks matching Module limits;
+- default Server Action request/body-size controls;
+- no anonymous direct table read/write grants;
+- one allow-listed `submit_repair_request` RPC returning only Reference and time;
+- Provider availability and configured Service Mode rechecked under a Provider
+  row lock;
+- unpredictable `REQ-[A-F0-9]{16}` public Request References.
+
+Production exposure still needs:
+
 - abuse/rate limiting before broad public exposure;
 - optional CAPTCHA/bot protection only when actual abuse warrants it.
+
+## Request decision integrity
+
+Authenticated clients can read only Provider-owned Request/Repair/history rows
+and cannot mutate those tables directly. Narrow decision RPCs lock the Request
+before checking `SUBMITTED`. Acceptance commits Request `ACCEPTED`, one
+`CUSTOMER_REQUEST` Repair, and its initial `IN_PROGRESS` Status Event together.
+Unique `repair_request_id` prevents duplicate Repair creation on retry.
 
 ## Environment secrets
 
@@ -140,4 +162,9 @@ At minimum test:
 - public tracking does not expose internal notes/contact data;
 - invalid tracking identifiers reveal no sensitive information;
 - accepted Repair Request cannot create multiple Repairs;
+- concurrent acceptance creates one Repair and one initial Status Event;
+- decline creates no Repair and cannot be repeated;
+- Provider B cannot list, accept, or decline Provider A Request;
+- anonymous callers cannot read Request contact/device/problem data;
+- closed Provider and unsupported Service Mode public submissions fail;
 - illegal Repair status transitions are rejected.
