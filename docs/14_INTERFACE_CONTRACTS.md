@@ -93,13 +93,23 @@ Implementation notes:
 ## Repair Requests — list/get
 
 ```text
-listRepairRequests(filter?) -> RepairRequestSummary[]
+listRepairRequests(options?) -> RepairRequestPage
 getRepairRequest(requestId) -> RepairRequestDetail | null
 ```
 
-Both Interfaces resolve trusted Provider context internally. The persistence
-query includes `provider_id` and RLS repeats membership isolation. URL/query
-identifiers never grant access.
+`options` may contain a Request `status` and positive integer `page`. Page 1 is
+the default. `RepairRequestPage` contains up to 25 `items`, the normalized page
+number, and `hasPrevious`/`hasNext` flags. Persistence fetches one additional
+row to derive `hasNext` without a full count query and orders by
+`submitted_at DESC, id DESC` for stable page boundaries.
+
+The Module rejects non-integer or non-positive page values. The Next.js route
+adapts malformed URL page values to page 1. Status changes reset to page 1;
+Previous/Next links preserve the active status.
+
+Both list/get Interfaces resolve trusted Provider context internally. The
+persistence query includes `provider_id` and RLS repeats membership isolation.
+URL/query identifiers never grant access.
 
 ## Repair Requests — acceptRepairRequest
 

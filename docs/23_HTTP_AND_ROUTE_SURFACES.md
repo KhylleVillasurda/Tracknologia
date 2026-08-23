@@ -35,10 +35,14 @@ Exact Supabase Auth callbacks may add framework-specific routes as implementatio
 - `/dashboard/repairs/[repairId]`
 - `/dashboard/settings`
 
-`/dashboard/requests` implements status filtering and Provider-scoped summary
-cards. `/dashboard/requests/[requestId]` separates customer-reported data from
-the editable authoritative Repair snapshot and Provider-private intake fields.
-Terminal Requests render read-only state.
+`/dashboard/requests` implements Provider-scoped summary cards with 25-row
+pagination. It accepts `status` and `page` query parameters, including
+`/dashboard/requests?status=SUBMITTED&page=2`. Status changes reset to page 1;
+Previous/Next links preserve status, and page 1 is omitted from canonical link
+URLs. Invalid page values render page 1 safely. `/dashboard/requests/[requestId]`
+separates customer-reported data from the editable authoritative Repair
+snapshot and Provider-private intake fields. Terminal Requests render read-only
+state.
 
 `/dashboard/settings` lets every Provider member edit their own canonical person
 profile. Provider business profile and Service Mode forms are rendered for
