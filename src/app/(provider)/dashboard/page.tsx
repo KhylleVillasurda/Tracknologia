@@ -50,9 +50,9 @@ export default async function DashboardPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Welcome to your Tracknologia workspace. Upcoming capabilities
-            (Provider Profile settings, Repair Jobs, Intake Requests, and
-            Customer Tracking) will appear here as each feature is enabled.
+            Welcome to your Tracknologia workspace. Provider profile and Service
+            Mode settings are available now. Repair Jobs, Intake Requests, and
+            Customer Tracking will appear here as each feature is enabled.
           </p>
         </CardContent>
       </Card>

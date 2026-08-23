@@ -18,22 +18,38 @@ export interface OnboardingActionState {
 
 import { cookies } from "next/headers";
 
+function readServiceModes(formData: FormData) {
+  return formData.getAll("serviceModes").map((value) => {
+    const mode = value.toString();
+    const details = formData.get(`serviceModeDetails.${mode}`)?.toString();
+
+    return {
+      mode,
+      details: details || undefined,
+    };
+  });
+}
+
 export async function onboardIndependentAction(
   _prevState: OnboardingActionState | null,
   formData: FormData,
 ): Promise<OnboardingActionState> {
   const supabase = await createClient();
-  const ownerContactPhone =
-    formData.get("ownerContactPhone")?.toString() || undefined;
   const rawData = {
     ownerName: formData.get("ownerName")?.toString() ?? "",
+    ownerContactPhone:
+      formData.get("ownerContactPhone")?.toString() || undefined,
     displayName: formData.get("displayName")?.toString() ?? "",
+    description: formData.get("description")?.toString() || undefined,
     contactEmail: formData.get("contactEmail")?.toString() || undefined,
     contactPhone: formData.get("contactPhone")?.toString() || undefined,
+    publicAddress: formData.get("publicAddress")?.toString() || undefined,
     serviceArea: formData.get("serviceArea")?.toString() || undefined,
     supportedDevices: formData
       .getAll("supportedDevices")
       .map((d) => d.toString()),
+    serviceModes: readServiceModes(formData),
+    acceptingRequests: formData.get("acceptingRequests") === "on",
   };
 
   const parsed = createIndependentProviderSchema.safeParse(rawData);
@@ -58,11 +74,15 @@ export async function onboardIndependentAction(
         displayName: parsed.data.displayName,
         providerType: "INDEPENDENT",
         ownerDisplayName: parsed.data.ownerName,
-        ownerContactPhone: ownerContactPhone,
+        ownerContactPhone: parsed.data.ownerContactPhone,
+        description: parsed.data.description,
         contactEmail: parsed.data.contactEmail,
         contactPhone: parsed.data.contactPhone,
+        publicAddress: parsed.data.publicAddress,
         serviceArea: parsed.data.serviceArea,
         supportedDevices: parsed.data.supportedDevices,
+        serviceModes: parsed.data.serviceModes,
+        acceptingRequests: parsed.data.acceptingRequests,
       },
       supabase,
     );
@@ -83,11 +103,12 @@ export async function onboardShopAction(
   formData: FormData,
 ): Promise<OnboardingActionState> {
   const supabase = await createClient();
-  const ownerContactPhone =
-    formData.get("ownerContactPhone")?.toString() || undefined;
   const rawData = {
     ownerName: formData.get("ownerName")?.toString() ?? "",
+    ownerContactPhone:
+      formData.get("ownerContactPhone")?.toString() || undefined,
     displayName: formData.get("displayName")?.toString() ?? "",
+    description: formData.get("description")?.toString() || undefined,
     contactEmail: formData.get("contactEmail")?.toString() || undefined,
     contactPhone: formData.get("contactPhone")?.toString() || undefined,
     publicAddress: formData.get("publicAddress")?.toString() || undefined,
@@ -95,6 +116,8 @@ export async function onboardShopAction(
     supportedDevices: formData
       .getAll("supportedDevices")
       .map((d) => d.toString()),
+    serviceModes: readServiceModes(formData),
+    acceptingRequests: formData.get("acceptingRequests") === "on",
   };
 
   const parsed = createShopProviderSchema.safeParse(rawData);
@@ -117,12 +140,15 @@ export async function onboardShopAction(
         displayName: parsed.data.displayName,
         providerType: "SHOP",
         ownerDisplayName: parsed.data.ownerName,
-        ownerContactPhone: ownerContactPhone,
+        ownerContactPhone: parsed.data.ownerContactPhone,
+        description: parsed.data.description,
         contactEmail: parsed.data.contactEmail,
         contactPhone: parsed.data.contactPhone,
         publicAddress: parsed.data.publicAddress,
         serviceArea: parsed.data.serviceArea,
         supportedDevices: parsed.data.supportedDevices,
+        serviceModes: parsed.data.serviceModes,
+        acceptingRequests: parsed.data.acceptingRequests,
       },
       supabase,
     );

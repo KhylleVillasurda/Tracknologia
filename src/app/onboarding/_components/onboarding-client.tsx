@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { InvitationShopDetails } from "@/features/providers";
 
@@ -21,6 +22,136 @@ const DEVICE_OPTIONS = [
   "Audio & Wearables",
   "Other Electronics",
 ];
+
+const SERVICE_MODE_OPTIONS = [
+  { value: "DROP_OFF", label: "Drop-off" },
+  { value: "MEETUP", label: "Meetup" },
+  { value: "HOME_SERVICE", label: "Home service" },
+  { value: "OTHER", label: "Other arrangement" },
+] as const;
+
+function ProviderOperatingFields({
+  prefix,
+  isPending,
+  fieldErrors,
+}: {
+  prefix: string;
+  isPending: boolean;
+  fieldErrors?: Record<string, string>;
+}) {
+  return (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor={`${prefix}-description`}>Provider Description</Label>
+        <Textarea
+          id={`${prefix}-description`}
+          name="description"
+          placeholder="Briefly describe your repair services and specialties"
+          disabled={isPending}
+          maxLength={1000}
+        />
+        {fieldErrors?.description && (
+          <p className="text-xs text-destructive">{fieldErrors.description}</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor={`${prefix}-address`}>Public Address (Optional)</Label>
+          <Input
+            id={`${prefix}-address`}
+            name="publicAddress"
+            placeholder="Storefront or public meeting address"
+            disabled={isPending}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${prefix}-area`}>Service Area (Optional)</Label>
+          <Input
+            id={`${prefix}-area`}
+            name="serviceArea"
+            placeholder="e.g. Metro Cebu and nearby cities"
+            disabled={isPending}
+          />
+        </div>
+      </div>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-foreground">
+          Supported Service Modes
+        </legend>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {SERVICE_MODE_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className="flex cursor-pointer items-center gap-2 rounded-xl border border-border/70 p-2 text-xs font-medium text-muted-foreground hover:bg-muted/40"
+            >
+              <input
+                type="checkbox"
+                name="serviceModes"
+                value={option.value}
+                className="rounded border-border accent-primary"
+                disabled={isPending}
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+        <Input
+          name="serviceModeDetails.OTHER"
+          aria-label="Other Service Mode details"
+          placeholder="If Other is selected, describe the arrangement"
+          disabled={isPending}
+          maxLength={240}
+        />
+        {fieldErrors?.serviceModes && (
+          <p className="text-xs text-destructive">{fieldErrors.serviceModes}</p>
+        )}
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-foreground">
+          Supported Device Categories
+        </legend>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {DEVICE_OPTIONS.map((device) => (
+            <label
+              key={device}
+              className="flex cursor-pointer items-center gap-2 rounded-xl border border-border/70 p-2 text-xs font-medium text-muted-foreground hover:bg-muted/40"
+            >
+              <input
+                type="checkbox"
+                name="supportedDevices"
+                value={device}
+                className="rounded border-border accent-primary"
+                disabled={isPending}
+              />
+              <span>{device}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/70 p-3">
+        <input
+          type="checkbox"
+          name="acceptingRequests"
+          className="mt-0.5 rounded border-border accent-primary"
+          defaultChecked
+          disabled={isPending}
+        />
+        <span>
+          <span className="block text-sm font-medium text-foreground">
+            Accept new Repair Requests
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            Show this Provider on public request and discovery surfaces.
+          </span>
+        </span>
+      </label>
+    </>
+  );
+}
 
 interface OnboardingClientProps {
   defaultInviteToken?: string;
@@ -148,6 +279,17 @@ export function OnboardingClient({
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="ind-ownerPhone">Your Contact Phone</Label>
+            <Input
+              id="ind-ownerPhone"
+              name="ownerContactPhone"
+              type="tel"
+              placeholder="+63 912 345 6789"
+              disabled={isPending}
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="ind-name">Repair Brand / Business Name *</Label>
             <Input
               id="ind-name"
@@ -188,38 +330,11 @@ export function OnboardingClient({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="ind-area">Service Area / Coverage (Optional)</Label>
-            <Input
-              id="ind-area"
-              name="serviceArea"
-              placeholder="e.g. Metro Cebu, Mandaue, Home Service"
-              disabled={isPending}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">
-              Supported Device Categories (Optional)
-            </Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {DEVICE_OPTIONS.map((device) => (
-                <label
-                  key={device}
-                  className="flex items-center gap-2 rounded-xl border border-border/70 p-2 text-xs font-medium text-muted-foreground hover:bg-muted/40 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    name="supportedDevices"
-                    value={device}
-                    className="rounded border-border accent-primary"
-                    disabled={isPending}
-                  />
-                  <span>{device}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+          <ProviderOperatingFields
+            prefix="ind"
+            isPending={isPending}
+            fieldErrors={indState?.fieldErrors}
+          />
 
           <Button type="submit" className="w-full" disabled={isPending}>
             {indPending ? (
@@ -273,6 +388,17 @@ export function OnboardingClient({
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="shop-ownerPhone">Your Contact Phone</Label>
+            <Input
+              id="shop-ownerPhone"
+              name="ownerContactPhone"
+              type="tel"
+              placeholder="+63 912 345 6789"
+              disabled={isPending}
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="shop-name">Shop / Business Name *</Label>
             <Input
               id="shop-name"
@@ -287,18 +413,6 @@ export function OnboardingClient({
                 {shopState.fieldErrors.displayName}
               </p>
             )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="shop-address">
-              Public Storefront Address (Optional)
-            </Label>
-            <Input
-              id="shop-address"
-              name="publicAddress"
-              placeholder="e.g. Unit 102, Tech Plaza, Downtown"
-              disabled={isPending}
-            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -325,38 +439,11 @@ export function OnboardingClient({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="shop-area">Service Area / Region (Optional)</Label>
-            <Input
-              id="shop-area"
-              name="serviceArea"
-              placeholder="e.g. Greater Cebu Area"
-              disabled={isPending}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">
-              Supported Device Categories (Optional)
-            </Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {DEVICE_OPTIONS.map((device) => (
-                <label
-                  key={device}
-                  className="flex items-center gap-2 rounded-xl border border-border/70 p-2 text-xs font-medium text-muted-foreground hover:bg-muted/40 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    name="supportedDevices"
-                    value={device}
-                    className="rounded border-border accent-primary"
-                    disabled={isPending}
-                  />
-                  <span>{device}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+          <ProviderOperatingFields
+            prefix="shop"
+            isPending={isPending}
+            fieldErrors={shopState?.fieldErrors}
+          />
 
           <Button type="submit" className="w-full" disabled={isPending}>
             {shopPending ? (
@@ -374,7 +461,9 @@ export function OnboardingClient({
       {/* 3. Shop Staff Invitation Acceptance Sole Flow */}
       {currentFlow === "STAFF" && (
         <form action={staffAction} className="space-y-4">
-          <input type="hidden" name="token" value={defaultInviteToken ?? ""} />
+          {defaultInviteToken && (
+            <input type="hidden" name="token" value={defaultInviteToken} />
+          )}
 
           {/* Shop Connection Card */}
           <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-2">
@@ -396,11 +485,6 @@ export function OnboardingClient({
                 {[shopDetails.publicAddress, shopDetails.serviceArea]
                   .filter(Boolean)
                   .join(" • ")}
-              </p>
-            )}
-            {shopDetails?.contactEmail && (
-              <p className="text-[11px] text-muted-foreground">
-                ✉️ Shop Contact: {shopDetails.contactEmail}
               </p>
             )}
           </div>
