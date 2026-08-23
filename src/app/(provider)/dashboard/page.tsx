@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requireProviderContext } from "@/features/auth";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -7,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Dashboard — Tracknologia",
@@ -50,10 +53,15 @@ export default async function DashboardPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Welcome to your Tracknologia workspace. Provider profile and Service
-            Mode settings are available now. Repair Jobs, Intake Requests, and
-            Customer Tracking will appear here as each feature is enabled.
+            Welcome to your Tracknologia workspace. Review incoming customer
+            Requests, or update Provider profile and Service Mode settings.
           </p>
+          <Link
+            href="/dashboard/requests"
+            className={cn(buttonVariants(), "w-full sm:w-fit")}
+          >
+            Open Repair Requests
+          </Link>
         </CardContent>
       </Card>
     </div>

@@ -99,6 +99,31 @@ src/features/repairs/
 
 Not every feature needs every file. Add files as complexity earns them.
 
+Feature 03 currently uses this concrete boundary:
+
+```text
+src/features/repair-requests/
+├── index.ts          # selective public Interface
+├── commands.ts       # submit, accept, decline
+├── queries.ts        # Provider-scoped list/detail
+├── schemas.ts        # public/filter/id validation
+├── types.ts
+├── persistence.ts    # server-only Supabase mechanics
+└── repair-requests.test.ts
+
+src/features/repairs/
+├── index.ts
+├── commands.ts       # Request-origin creation seam only
+├── schemas.ts
+├── types.ts
+├── persistence.ts
+└── repairs.test.ts
+```
+
+Route-local forms/actions remain under the public Request and Provider Request
+route trees. Repair Requests imports the Repairs Interface for acceptance;
+Repairs does not import Repair Requests.
+
 ## Barrel policy
 
 Use a selective `index.ts` only at a meaningful feature/Module seam.

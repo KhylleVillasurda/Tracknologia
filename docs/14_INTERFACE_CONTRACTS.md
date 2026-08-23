@@ -83,10 +83,38 @@ Guarantees:
 - returned Request Reference is safe to show publicly;
 - no Repair is created.
 
+Implementation notes:
+
+- the public Server Action validates with `submitRepairRequestSchema`;
+- anonymous/authenticated clients call a narrow `submit_repair_request` RPC;
+- direct anonymous table insert/read is denied;
+- Provider availability and Service Mode support are rechecked at write time.
+
+## Repair Requests — list/get
+
+```text
+listRepairRequests(options?) -> RepairRequestPage
+getRepairRequest(requestId) -> RepairRequestDetail | null
+```
+
+`options` may contain a Request `status` and positive integer `page`. Page 1 is
+the default. `RepairRequestPage` contains up to 25 `items`, the normalized page
+number, and `hasPrevious`/`hasNext` flags. Persistence fetches one additional
+row to derive `hasNext` without a full count query and orders by
+`submitted_at DESC, id DESC` for stable page boundaries.
+
+The Module rejects non-integer or non-positive page values. The Next.js route
+adapts malformed URL page values to page 1. Status changes reset to page 1;
+Previous/Next links preserve the active status.
+
+Both list/get Interfaces resolve trusted Provider context internally. The
+persistence query includes `provider_id` and RLS repeats membership isolation.
+URL/query identifiers never grant access.
+
 ## Repair Requests — acceptRepairRequest
 
 ```text
-acceptRepairRequest(context, requestId, verifiedInput)
+acceptRepairRequest(requestId, verifiedInput)
   -> AcceptedRepairResult
 ```
 
@@ -104,10 +132,15 @@ Guarantees:
 
 A second acceptance attempt must not create another Repair.
 
+The implementation delegates authoritative Repair creation to the Repairs
+Module's Request-origin seam. PostgreSQL locks the Request and commits Repair,
+initial `NULL -> IN_PROGRESS` Status Event, and Request `ACCEPTED` state in one
+transaction. Unique `repairs.repair_request_id` remains defense in depth.
+
 ## Repair Requests — declineRepairRequest
 
 ```text
-declineRepairRequest(context, requestId) -> RepairRequest
+declineRepairRequest(requestId) -> RepairRequestDetail
 ```
 
 Guarantees:
@@ -115,6 +148,9 @@ Guarantees:
 - caller owns Request through Provider context;
 - only a `SUBMITTED` Request can be declined;
 - no Repair is created.
+
+The implementation locks the Request before the terminal update, so accept vs
+decline and repeated-decision races produce one durable outcome.
 
 ## Repairs — createRepair
 

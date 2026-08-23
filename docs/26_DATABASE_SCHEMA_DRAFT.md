@@ -90,7 +90,12 @@ Email/URL syntax and device de-duplication remain Module validation rules.
 
 - belongs to one Provider;
 - status begins `SUBMITTED`;
-- Request Reference unique.
+- Request Reference is unique and matches `REQ-[A-F0-9]{16}`;
+- terminal status, actor, and timestamp columns remain consistent by check
+  constraint;
+- Service Mode details require a selected preferred Service Mode;
+- customer/device/problem fields have durable bounds matching Module schemas;
+- `(provider_id, status, submitted_at DESC)` supports the Provider inbox.
 
 ### Request to Repair
 
@@ -98,15 +103,30 @@ Email/URL syntax and device de-duplication remain Module validation rules.
 
 This prevents a single Request from creating two accepted Repairs.
 
+The implemented composite foreign key `(provider_id, repair_request_id)` also
+references `(repair_requests.provider_id, repair_requests.id)`, preventing a
+cross-Provider source relationship even for privileged direct writes.
+
 ### Repair identity
 
 - Tracking Code globally unique;
 - Ticket Number unique within Provider scope;
 - `current_status` begins `IN_PROGRESS`.
 
+Implemented Feature 03 formats are:
+
+```text
+ticket_number  TN-YYYY-[A-F0-9]{10}
+tracking_code  TRK-[A-F0-9]{24}
+```
+
 ### History
 
 Every status change appends one `repair_status_events` row in the same transaction as the Repair status update.
+
+Request acceptance currently writes the initial `NULL -> IN_PROGRESS` event in
+the same transaction as Repair creation and Request acceptance. Feature 04 will
+extend this foundation with later lifecycle transitions and `repair_updates`.
 
 Customer Updates are separate repeatable rows and do not require status changes.
 
@@ -141,3 +161,10 @@ Provider-owned tables check current `auth.uid()` membership.
 Child rows (`repair_status_events`, `repair_updates`) derive authorization through `repairs.provider_id`.
 
 Public Repair Request insertion and public Tracking lookup use intentionally limited policies and restricted server interfaces.
+
+Feature 03 implements public submission through `submit_repair_request` only;
+anonymous roles have no direct Request/Repair/history table privileges.
+Authenticated members receive Provider-scoped read policies but no direct
+mutation grants. `decline_repair_request` and `create_repair_from_request`
+derive `auth.uid()`, verify membership, and lock the Request. Acceptance creates
+the Repair, initial Status Event, and `ACCEPTED` Request state atomically.

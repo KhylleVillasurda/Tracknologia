@@ -12,6 +12,11 @@ Customer enters Tracking Code and receives a `PublicRepairView`.
 
 Customer submits a Repair Request to one specific Provider. The page presents Provider identity and supported Service Modes.
 
+Implemented as a Server Component plus route-local Client form/Server Action.
+Dynamic `params` are awaited. Submission returns an inline receipt containing a
+Request Reference only; it does not create a Repair or return a Tracking Code.
+Unavailable/closed Provider slugs render a generic unavailable state.
+
 ## Authentication routes
 
 - `/login`
@@ -29,6 +34,15 @@ Exact Supabase Auth callbacks may add framework-specific routes as implementatio
 - `/dashboard/repairs/new`
 - `/dashboard/repairs/[repairId]`
 - `/dashboard/settings`
+
+`/dashboard/requests` implements Provider-scoped summary cards with 25-row
+pagination. It accepts `status` and `page` query parameters, including
+`/dashboard/requests?status=SUBMITTED&page=2`. Status changes reset to page 1;
+Previous/Next links preserve status, and page 1 is omitted from canonical link
+URLs. Invalid page values render page 1 safely. `/dashboard/requests/[requestId]`
+separates customer-reported data from the editable authoritative Repair
+snapshot and Provider-private intake fields. Terminal Requests render read-only
+state.
 
 `/dashboard/settings` lets every Provider member edit their own canonical person
 profile. Provider business profile and Service Mode forms are rendered for
@@ -50,6 +64,15 @@ Good candidates:
 - complete Repair.
 
 Every Server Action still authenticates/authorizes and validates input before calling the feature Module.
+
+Feature 03 actions are:
+
+- public `submitRepairRequestAction(providerSlug, state, formData)`;
+- protected `acceptRepairRequestAction(state, formData)`;
+- protected `declineRepairRequestAction(state, formData)`.
+
+Actions do not accept a Provider identifier. Hidden/route Request IDs are
+untrusted locators; the Module and PostgreSQL derive ownership independently.
 
 ## Route Handler candidates
 

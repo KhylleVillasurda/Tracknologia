@@ -92,6 +92,17 @@ Each sensitive operation must:
 
 Do not assume a hidden button or protected page makes a Server Action authorized.
 
+### Repair Request surfaces
+
+Feature 03 uses Server Actions as transport adapters only:
+
+- public submission validates bounded FormData with Zod and passes the Provider
+  slug to the Repair Requests Module;
+- Provider accept/decline actions derive authenticated membership through
+  `requireProviderContext()` and never accept `providerId`, `userId`, or role;
+- route `requestId` values remain untrusted and are checked again by Module
+  validation, persistence filters, database membership checks, and RLS.
+
 ## Proxy usage
 
 Current Next.js uses `proxy.ts` terminology. Use Proxy for session refresh and coarse navigation/redirect behavior only.
@@ -103,6 +114,9 @@ Do not put the full Tracknologia authorization model in Proxy.
 Use `server-only` for sensitive persistence/auth implementation modules where useful to prevent accidental client imports:
 
 - `src/features/repairs/persistence.ts`
+- `src/features/repair-requests/persistence.ts`
+- `src/features/repair-requests/commands.ts`
+- `src/features/repair-requests/queries.ts`
 - `src/features/providers/persistence.ts`
 - `src/features/providers/commands.ts`
 - `src/features/providers/queries.ts`
@@ -124,6 +138,35 @@ Use Zod on the server for:
 - Tracking Code lookup shape/limits.
 
 Browser validation is UX only.
+
+Feature 03's database checks mirror the durable maximum lengths for Request and
+Request-origin Repair snapshots. The browser cannot bypass status consistency,
+same-Provider Request/Repair ownership, source uniqueness, or identifier shape.
+
+## Public Repair Request submission
+
+Anonymous callers have no direct `SELECT`, `INSERT`, `UPDATE`, or `DELETE`
+privileges on `repair_requests`, `repairs`, or `repair_status_events`.
+`submit_repair_request` is the only anonymous mutation surface. It is
+`SECURITY DEFINER` with `search_path = public, pg_temp`, returns only Request
+Reference and submission time, and rechecks:
+
+- Provider exists and currently accepts Requests;
+- preferred Service Mode is currently configured for that Provider;
+- Service Mode/details pairing and durable input bounds.
+
+The operation holds a shared Provider-row lock so profile/mode changes cannot
+race the availability check. No Repair or private Provider row is returned.
+Application/edge rate limiting remains required before broad hostile-Internet
+exposure; CAPTCHA is deferred until observed abuse warrants it.
+
+## Provider Request decisions
+
+Authenticated clients receive read-only table grants. Accept/decline writes use
+narrow `SECURITY DEFINER` functions that derive `auth.uid()`, resolve
+membership, hide cross-Provider existence as `REQUEST_NOT_FOUND`, and lock the
+Request before checking `SUBMITTED`. Acceptance atomically creates one Repair,
+one initial Status Event, and one terminal Request state.
 
 ## Public tracking
 
@@ -172,4 +215,7 @@ Browser-safe public/publishable configuration is distinct from privileged server
 - invalid Tracking Code reveals minimal information.
 - Internal Notes never enter public output.
 - repeated Request acceptance cannot create duplicate Repairs.
+- concurrent accept/decline decisions serialize to one terminal outcome.
+- anonymous callers cannot read Request/contact data or create Repairs directly.
+- public submission rejects closed Providers and unsupported Service Modes.
 - status transitions cannot bypass allowed business rules.
