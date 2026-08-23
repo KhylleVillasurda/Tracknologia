@@ -155,7 +155,7 @@ decline and repeated-decision races produce one durable outcome.
 ## Repairs — createRepair
 
 ```text
-createRepair(context, input) -> RepairResult
+createRepair(input) -> RepairResult
 ```
 
 Guarantees:
@@ -167,10 +167,46 @@ Guarantees:
 - Ticket Number and Tracking Code are unique under chosen scopes;
 - initial Status Event is appended.
 
+The Module derives Provider identity from authenticated membership. PostgreSQL
+commits the Repair and initial Status Event together and rechecks the configured
+Service Mode at write time.
+
+## Repairs — listRepairs / getRepair
+
+```text
+listRepairs(options?) -> RepairPage
+getRepair(repairId) -> RepairDetail | null
+getRepairCounts() -> RepairCounts
+```
+
+Guarantees:
+
+- every result is scoped to authenticated Provider context and RLS;
+- invalid/cross-Provider identifiers reveal only not-found behavior;
+- list pages contain at most 25 summaries with deterministic ordering;
+- search/filter/page options validate before persistence;
+- detail composes Status Events and Customer Updates without exposing raw
+  persistence rows.
+
+## Repairs — updateRepairDetails
+
+```text
+updateRepairDetails(repairId, input) -> RepairDetail
+```
+
+Guarantees:
+
+- Provider owns Repair;
+- authoritative snapshot input uses durable creation bounds;
+- identity, ownership, source, ticket/tracking, lifecycle, actor, and timestamp
+  columns are not client-editable;
+- RLS and column-level grants repeat the allow-list in PostgreSQL.
+
 ## Repairs — changeRepairStatus
 
 ```text
-changeRepairStatus(context, repairId, { nextStatus }) -> RepairDetail
+changeRepairStatus(repairId, nextStatus) -> RepairDetail
+completeRepair(repairId) -> RepairDetail
 ```
 
 Guarantees:
@@ -180,12 +216,14 @@ Guarantees:
 - `current_status` and Status Event are committed atomically;
 - completion timestamp is maintained consistently.
 
-`WAITING_FOR_PARTS` and `AWAITING_APPROVAL` are optional states, never mandatory stages.
+`WAITING_FOR_PARTS` and `AWAITING_APPROVAL` are optional states, never mandatory
+stages. `completeRepair` is the deliberate `READY -> COMPLETED` operation;
+ordinary status change input does not silently complete a Repair.
 
 ## Repairs — addCustomerUpdate
 
 ```text
-addCustomerUpdate(context, repairId, message) -> CustomerUpdate
+addCustomerUpdate(repairId, message) -> CustomerUpdate
 ```
 
 Guarantees:
@@ -196,6 +234,8 @@ Guarantees:
 - Repair status does not need to change.
 
 This interface must not accept/republish Internal Notes accidentally.
+Customer Updates are append-only for authenticated Provider members and do not
+create Status Events.
 
 ## Tracking — lookupRepairByTrackingCode
 

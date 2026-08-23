@@ -124,11 +124,17 @@ tracking_code  TRK-[A-F0-9]{24}
 
 Every status change appends one `repair_status_events` row in the same transaction as the Repair status update.
 
-Request acceptance currently writes the initial `NULL -> IN_PROGRESS` event in
-the same transaction as Repair creation and Request acceptance. Feature 04 will
-extend this foundation with later lifecycle transitions and `repair_updates`.
+Request acceptance writes the initial `NULL -> IN_PROGRESS` event in the same
+transaction as Repair creation and Request acceptance. Direct Provider creation
+also writes its Repair and initial event atomically. Feature 04 lifecycle
+transitions lock the Repair row and commit status, `completed_at`, and one
+matching event together.
 
 Customer Updates are separate repeatable rows and do not require status changes.
+`repair_updates` is materialized with a nonblank 2,000-character message bound,
+authenticated author default, cascading Repair foreign key, and stable history
+index. Provider members may append/read their Provider's updates but cannot
+edit/delete them; anonymous roles have no raw access.
 
 ## Why arrays/text columns are acceptable here
 
@@ -164,7 +170,9 @@ Public Repair Request insertion and public Tracking lookup use intentionally lim
 
 Feature 03 implements public submission through `submit_repair_request` only;
 anonymous roles have no direct Request/Repair/history table privileges.
-Authenticated members receive Provider-scoped read policies but no direct
-mutation grants. `decline_repair_request` and `create_repair_from_request`
-derive `auth.uid()`, verify membership, and lock the Request. Acceptance creates
-the Repair, initial Status Event, and `ACCEPTED` Request state atomically.
+Authenticated members receive Provider-scoped reads. Repair detail mutation is
+limited to explicitly granted snapshot columns under an UPDATE policy; direct
+Repair creation, lifecycle columns, Status Events, identifiers, ownership, and
+audit fields remain protected. `create_provider_repair` and
+`change_repair_status` provide the two narrow Feature 04 transactions required
+for atomic creation/history and locked lifecycle/history consistency.

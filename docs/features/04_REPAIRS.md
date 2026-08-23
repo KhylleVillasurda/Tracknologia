@@ -137,16 +137,20 @@ Repair engagement and return/handover are finished.
 ## Conceptual Interface
 
 ```ts
-createRepair(context, input): RepairResult
-getRepair(context, repairId): RepairDetail
-listRepairs(context, filter?): RepairSummary[]
-updateRepairDetails(context, repairId, input): RepairDetail
-changeRepairStatus(context, repairId, input): RepairDetail
-addCustomerUpdate(context, repairId, message): CustomerUpdate
-completeRepair(context, repairId): RepairDetail
+createRepair(input): RepairResult
+getRepair(repairId): RepairDetail | null
+listRepairs(options?): RepairPage
+getRepairCounts(): RepairCounts
+updateRepairDetails(repairId, input): RepairDetail
+changeRepairStatus(repairId, nextStatus): RepairDetail
+addCustomerUpdate(repairId, message): CustomerUpdate
+completeRepair(repairId): RepairDetail
 ```
 
 The Interface should hide ticket/tracking generation, ownership checks, transition validation, Status Event creation, and persistence coordination.
+Provider-facing operations derive trusted Provider context internally. The
+Request-origin creation seam remains available only for the Repair Requests
+Module, which already supplies trusted context.
 
 ## Direct creation workflow
 
@@ -359,6 +363,33 @@ Test:
 - Provider isolation;
 - list/search/filter behavior;
 - one Request cannot create two Repairs.
+
+## Implemented baseline
+
+Feature 04 is implemented through:
+
+- `src/features/repairs/` for validation, direct and Request-origin creation,
+  Provider-scoped list/detail/count queries, allow-listed detail editing,
+  lifecycle transitions, completion, and Customer Updates;
+- `/dashboard/repairs`, `/dashboard/repairs/new`, and
+  `/dashboard/repairs/[repairId]` for responsive Provider operations;
+- `20260824023000_complete_repairs.sql` for append-only `repair_updates`,
+  restricted detail-edit privileges, atomic direct creation, and serialized
+  lifecycle transitions;
+- real PostgreSQL integration coverage for direct creation, initial history,
+  immutable fields, cross-Provider isolation, Customer Update separation,
+  legal/illegal transitions, completion, and concurrent transition races.
+
+Repair pages use 25-row look-ahead pagination ordered by
+`updated_at DESC, id DESC`. Search is bounded and restricted to characters that
+cannot alter PostgREST filter grammar. Direct creation and status transitions
+use narrow database transactions because they require multiple durable writes;
+single-statement detail edits and Customer Update insertion use ordinary
+persistence with column grants, constraints, and RLS.
+
+Public Tracking remains Feature 05. Feature 04 exposes Tracking Codes only to
+the owning Provider and grants no anonymous access to raw Repair or Customer
+Update rows.
 
 ## Definition of done
 

@@ -73,7 +73,7 @@ Repair engagement and return/handover are finished.
 
 MVP rules should be simple rather than attempting to model every real-world exception.
 
-Current proposed valid transitions:
+Implemented valid transitions:
 
 | From              | To                |
 | ----------------- | ----------------- |
@@ -92,3 +92,9 @@ Future evidence may justify:
 - reopening a COMPLETED Repair
 
 These are intentionally omitted until required.
+
+Feature 04 enforces this graph in both the Repairs Module and the
+`change_repair_status` transaction. The transaction locks the Repair row,
+updates `current_status`, appends one matching Status Event, and maintains
+`completed_at` atomically. Concurrent attempts re-evaluate the winning durable
+state; a now-invalid loser is rejected. `COMPLETED` cannot be reopened.

@@ -63,6 +63,20 @@ rewrite Provider type, slug, ownership, IDs, or timestamps. Direct writes to
 same-Provider calls with a row lock. Database checks bound direct profile values
 that bypass application validation.
 
+Feature 04 Provider operations likewise derive trusted context inside the
+Repairs Module. Authenticated members may update only the explicitly granted
+Repair snapshot/detail columns for their Provider. They cannot directly insert
+Repairs or Status Events, or rewrite Provider ownership, source Request,
+origin, ticket/tracking identifiers, lifecycle state, actors, or timestamps.
+
+Direct creation uses `create_provider_repair` to commit one Repair and initial
+Status Event atomically. Lifecycle changes use `change_repair_status`, which
+locks the Repair, rechecks the exact transition graph, appends history, and
+maintains `completed_at` in one transaction. Cross-Provider identifiers are
+hidden as not found. Customer Updates are Provider-scoped and append-only;
+authenticated users cannot edit/delete them, and anonymous roles cannot read
+the raw table.
+
 ## Public Provider and invitation projections
 
 Anonymous users cannot read raw Provider rows. `public_provider_profiles`
@@ -128,11 +142,15 @@ Production exposure still needs:
 
 ## Request decision integrity
 
-Authenticated clients can read only Provider-owned Request/Repair/history rows
-and cannot mutate those tables directly. Narrow decision RPCs lock the Request
+Authenticated clients can read only Provider-owned Request/Repair/history rows.
+Feature 03 Request rows remain read-only to clients. Narrow decision RPCs lock the Request
 before checking `SUBMITTED`. Acceptance commits Request `ACCEPTED`, one
 `CUSTOMER_REQUEST` Repair, and its initial `IN_PROGRESS` Status Event together.
 Unique `repair_request_id` prevents duplicate Repair creation on retry.
+
+Feature 04 grants only allow-listed Repair detail columns and Customer Update
+insertion. Repair creation and lifecycle/history remain narrow transaction
+surfaces rather than direct table writes.
 
 ## Environment secrets
 
@@ -168,3 +186,8 @@ At minimum test:
 - anonymous callers cannot read Request contact/device/problem data;
 - closed Provider and unsupported Service Mode public submissions fail;
 - illegal Repair status transitions are rejected.
+- direct Repair creation cannot leave a Repair without its initial event;
+- direct authenticated status/identity edits and Status Event insertion fail;
+- Customer Updates are Provider-scoped, append-only, and independent of status;
+- concurrent lifecycle changes leave one consistent status/event outcome;
+- completed Repairs cannot be reopened and have a matching completion time.

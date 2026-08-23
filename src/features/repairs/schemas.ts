@@ -13,7 +13,7 @@ const optionalEmail = z
   .optional()
   .or(z.literal(""));
 
-export const requestOriginRepairSchema = z
+const repairSnapshotSchema = z
   .object({
     customerName: z
       .string()
@@ -89,6 +89,55 @@ export const requestOriginRepairSchema = z
     }
   });
 
+export const requestOriginRepairSchema = repairSnapshotSchema;
+export const directRepairSchema = repairSnapshotSchema;
+export const updateRepairDetailsSchema = repairSnapshotSchema;
+
+export const repairIdSchema = z.uuid("Repair ID is invalid");
+
+export const repairStatusEnum = z.enum([
+  "IN_PROGRESS",
+  "WAITING_FOR_PARTS",
+  "AWAITING_APPROVAL",
+  "READY",
+  "COMPLETED",
+]);
+
+export const changeRepairStatusSchema = z.object({
+  nextStatus: z.enum([
+    "IN_PROGRESS",
+    "WAITING_FOR_PARTS",
+    "AWAITING_APPROVAL",
+    "READY",
+  ]),
+});
+
+export const customerUpdateSchema = z.object({
+  message: z
+    .string()
+    .trim()
+    .min(1, "Customer Update is required")
+    .max(2000, "Customer Update must be 2,000 characters or fewer"),
+});
+
+export const repairPageSchema = z.coerce.number().int().positive();
+
+export const repairListOptionsSchema = z.object({
+  status: repairStatusEnum.optional(),
+  query: z
+    .string()
+    .trim()
+    .max(80, "Search must be 80 characters or fewer")
+    .regex(/^[\p{L}\p{N}\s.#-]*$/u, "Search contains unsupported punctuation")
+    .optional()
+    .transform((value) => value || undefined),
+  page: z.number().int().positive().default(1),
+});
+
 export type RequestOriginRepairSchemaInput = z.infer<
   typeof requestOriginRepairSchema
+>;
+export type DirectRepairSchemaInput = z.infer<typeof directRepairSchema>;
+export type UpdateRepairDetailsSchemaInput = z.infer<
+  typeof updateRepairDetailsSchema
 >;

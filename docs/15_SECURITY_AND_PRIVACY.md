@@ -103,6 +103,28 @@ Feature 03 uses Server Actions as transport adapters only:
 - route `requestId` values remain untrusted and are checked again by Module
   validation, persistence filters, database membership checks, and RLS.
 
+### Repair operation surfaces
+
+Feature 04 Server Actions validate FormData and pass only Repair locators plus
+allow-listed business input to the Repairs Module. The Module derives Provider
+context internally; browser-supplied Provider/user IDs and roles are not part
+of the contracts. Cross-Provider and invalid Repair locators return the same
+not-found behavior.
+
+Authenticated members may read their Provider's Repairs and receive column-
+level `UPDATE` privileges only for the authoritative customer/device and
+Provider-authored detail fields. They cannot directly change origin, source,
+ticket/tracking identifiers, status, ownership, actors, or timestamps. Direct
+Repair insertion and Status Event insertion remain denied.
+
+`create_provider_repair` atomically creates a direct Repair plus its initial
+Status Event. `change_repair_status` locks the Repair and atomically changes
+status, appends history, and maintains `completed_at`. Both functions derive
+`auth.uid()`, recheck membership, set `search_path = public, pg_temp`, and hide
+cross-Provider existence. Customer Updates use constrained append-only INSERT;
+their RLS derives ownership through the parent Repair, and authenticated users
+cannot edit or delete them.
+
 ## Proxy usage
 
 Current Next.js uses `proxy.ts` terminology. Use Proxy for session refresh and coarse navigation/redirect behavior only.
@@ -142,6 +164,9 @@ Browser validation is UX only.
 Feature 03's database checks mirror the durable maximum lengths for Request and
 Request-origin Repair snapshots. The browser cannot bypass status consistency,
 same-Provider Request/Repair ownership, source uniqueness, or identifier shape.
+Feature 04 applies the same snapshot bounds to direct creation and later detail
+editing, bounds Customer Updates to nonblank 2,000-character messages, and
+rechecks the exact Repair transition graph inside the database transaction.
 
 ## Public Repair Request submission
 
@@ -219,3 +244,11 @@ Browser-safe public/publishable configuration is distinct from privileged server
 - anonymous callers cannot read Request/contact data or create Repairs directly.
 - public submission rejects closed Providers and unsupported Service Modes.
 - status transitions cannot bypass allowed business rules.
+- direct Provider Repair creation commits one `IN_PROGRESS` Repair and initial
+  Status Event or rolls back completely;
+- authenticated clients cannot directly rewrite Repair lifecycle or identity
+  columns;
+- Customer Updates are Provider-scoped, append-only, and independent of Status
+  Events;
+- concurrent same-Repair transitions leave one consistent status/history pair;
+- `COMPLETED` Repairs cannot be reopened and `completed_at` remains consistent.

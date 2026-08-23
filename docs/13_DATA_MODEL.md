@@ -219,9 +219,9 @@ completed_at           timestamptz nullable
 This enforces "one Repair Request can produce at most one Repair" at the database level.
 
 The composite Request foreign key also guarantees the source Request and
-created Repair belong to the same Provider. Feature 03 creates only
-`CUSTOMER_REQUEST` Repairs; the nullable relationship and
-`PROVIDER_CREATED` origin are retained for Feature 04 direct creation.
+created Repair belong to the same Provider. Feature 04 creates
+`PROVIDER_CREATED` Repairs directly while preserving the same downstream
+lifecycle used by `CUSTOMER_REQUEST` Repairs.
 
 Implemented identifiers use:
 
@@ -246,8 +246,11 @@ created_at             timestamptz
 
 The initial event is `NULL -> IN_PROGRESS`.
 
-Feature 03 inserts this initial event in the same database transaction that
-creates the Request-origin Repair and marks the source Request `ACCEPTED`.
+Request acceptance inserts this initial event in the same database transaction
+that creates the Request-origin Repair and marks the source Request `ACCEPTED`.
+Direct Provider creation likewise commits the Repair and initial event
+atomically. Later transitions lock the Repair and commit status,
+`completed_at`, and one matching event together.
 
 Status history remains separate because it is inherently repeating and required for lifecycle history/validation.
 
@@ -262,6 +265,12 @@ created_at             timestamptz
 ```
 
 Customer Updates are independent of status changes. A Provider can post several updates while a Repair remains `IN_PROGRESS`.
+
+Feature 04 materializes this table with a nonblank 2,000-character message
+bound, authenticated author default, cascading Repair relationship, Provider-
+scoped RLS, and `(repair_id, created_at DESC, id DESC)` index. Provider members
+may append and read updates for their own Repairs, but cannot edit or delete
+them. Anonymous roles receive no raw table access.
 
 ## Why no customers table yet
 
