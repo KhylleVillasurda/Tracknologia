@@ -77,11 +77,16 @@ Manage customer-submitted pre-acceptance Requests for exactly one Provider.
 
 ```ts
 submitRepairRequest(providerSlug, input): RepairRequestReceipt
-listRepairRequests(context, filter?): RepairRequestSummary[]
-getRepairRequest(context, requestId): RepairRequestDetail
-acceptRepairRequest(context, requestId, verifiedInput): AcceptedRepairResult
-declineRepairRequest(context, requestId): RepairRequest
+listRepairRequests(filter?): RepairRequestSummary[]
+getRepairRequest(requestId): RepairRequestDetail | null
+acceptRepairRequest(requestId, verifiedInput): AcceptedRepairResult
+declineRepairRequest(requestId): RepairRequestDetail
 ```
+
+Provider-side Interfaces derive `ProviderContext` from the authenticated
+Supabase session. Browser-supplied Provider/user identifiers are not part of
+the mutation or query contracts. Persistence is server-only and hides direct
+queries plus the submission/decision RPC mechanics.
 
 ### Invariants
 
@@ -111,6 +116,11 @@ changeRepairStatus(context, repairId, input): RepairDetail
 addCustomerUpdate(context, repairId, message): CustomerUpdate
 completeRepair(context, repairId): RepairDetail
 ```
+
+Feature 03 implements the narrow `createRepairFromRequest` seam needed by
+Request acceptance. Direct creation, Repair queries, detail updates, lifecycle
+transitions, and Customer Updates remain owned by Feature 04 rather than being
+partially implemented inside Repair Requests.
 
 ### Hides
 

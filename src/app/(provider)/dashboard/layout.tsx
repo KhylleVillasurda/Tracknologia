@@ -37,12 +37,18 @@ export default async function DashboardLayout({
                 Tracknologia
               </span>
             </Link>
-            <nav className="flex items-center gap-3 text-xs font-medium sm:gap-4 sm:text-sm">
+            <nav className="hidden items-center gap-4 text-sm font-medium md:flex">
               <Link
                 href="/dashboard"
                 className="text-foreground font-medium transition-colors hover:text-primary"
               >
                 Dashboard
+              </Link>
+              <Link
+                href="/dashboard/requests"
+                className="text-muted-foreground font-medium transition-colors hover:text-foreground"
+              >
+                Requests
               </Link>
               {context.providerType === "SHOP" && (
                 <Link
@@ -78,6 +84,34 @@ export default async function DashboardLayout({
             </form>
           </div>
         </div>
+        <nav className="flex items-center gap-4 overflow-x-auto border-t border-border/70 px-4 py-2 text-xs font-medium md:hidden">
+          <Link
+            href="/dashboard"
+            className="shrink-0 text-foreground transition-colors hover:text-primary"
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/dashboard/requests"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Requests
+          </Link>
+          {context.providerType === "SHOP" && (
+            <Link
+              href="/dashboard/team"
+              className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Team & Staff
+            </Link>
+          )}
+          <Link
+            href="/dashboard/settings"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Settings
+          </Link>
+        </nav>
       </header>
 
       {/* Main Content Area */}

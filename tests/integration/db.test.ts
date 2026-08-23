@@ -108,6 +108,56 @@ async function acceptInvitationAs(
   });
 }
 
+async function submitRepairRequestAs(
+  client: SupabaseClient,
+  providerSlug: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return client.rpc("submit_repair_request", {
+    p_provider_slug: providerSlug,
+    p_customer_name: "Customer Draft Name",
+    p_customer_phone: "+63 917 555 0101",
+    p_customer_email: "customer@example.test",
+    p_device_type: "Laptop",
+    p_brand: "Draft Brand",
+    p_model: "Draft Model",
+    p_serial_number: null,
+    p_color_variant: null,
+    p_device_specs: null,
+    p_reported_problem: "Customer reports that the device will not charge.",
+    p_problem_started_at: "Yesterday",
+    p_preceding_event: null,
+    p_troubleshooting_attempted: "Tried another charger",
+    p_additional_information: null,
+    p_preferred_service_mode: "DROP_OFF",
+    p_service_mode_details: null,
+    ...overrides,
+  });
+}
+
+function verifiedRepairInput(requestId: string) {
+  return {
+    p_request_id: requestId,
+    p_customer_name: "Verified Customer Name",
+    p_customer_phone: "+63 917 555 0199",
+    p_customer_email: "verified@example.test",
+    p_device_type: "Laptop",
+    p_brand: "Verified Brand",
+    p_model: "Verified Model",
+    p_serial_number: "SERIAL-123",
+    p_color_variant: "Black",
+    p_device_specs: "16 GB RAM",
+    p_physical_condition: "Minor scratches",
+    p_accessories_received: "Charger",
+    p_reported_problem: "Verified charging failure",
+    p_initial_observation: "Charging port is loose",
+    p_diagnosis: "Damaged charging port",
+    p_internal_notes: "Private intake note",
+    p_service_mode: "DROP_OFF",
+    p_service_mode_details: "Front desk intake",
+  };
+}
+
 describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", () => {
   let adminClient: SupabaseClient;
   let anonClient: SupabaseClient;
@@ -1418,6 +1468,307 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       await cleanupFixture(adminClient, {
         providerIds: createdProviderIds,
         userIds: [userA.user.id, userB.user.id],
+      });
+    }
+  });
+
+  it("public Repair Request submission is restricted to available Provider configuration", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("request-public"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const provider = await createProviderAs(auth.client, {
+      displayName: uniqueName("Request Provider"),
+    });
+
+    try {
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF", details: "Front desk" }],
+        }),
+        "configure Request Provider Service Modes",
+      );
+
+      const submitted = assertSupabaseSuccess(
+        await submitRepairRequestAs(anonClient, provider.slug),
+        "submit public Repair Request",
+      );
+      const receipt = Array.isArray(submitted.data)
+        ? submitted.data[0]
+        : submitted.data;
+      expect(receipt.reference_code).toMatch(/^REQ-[A-F0-9]{16}$/);
+
+      const durable = assertSupabaseSuccess(
+        await adminClient
+          .from("repair_requests")
+          .select("provider_id, reference_code, status, preferred_service_mode")
+          .eq("reference_code", receipt.reference_code)
+          .single(),
+        "read submitted Repair Request",
+      );
+      expect(durable.data).toMatchObject({
+        provider_id: provider.providerId,
+        status: "SUBMITTED",
+        preferred_service_mode: "DROP_OFF",
+      });
+
+      const anonRead = await anonClient.from("repair_requests").select("id");
+      expect(anonRead.error).not.toBeNull();
+
+      const anonInsert = await anonClient.from("repair_requests").insert({
+        provider_id: provider.providerId,
+        reference_code: "REQ-0000000000000000",
+        customer_name: "Bypass Customer",
+        customer_phone: "09170000000",
+        device_type: "Phone",
+        reported_problem: "Attempt direct public insert",
+      });
+      expect(anonInsert.error).not.toBeNull();
+
+      const unsupported = await submitRepairRequestAs(
+        anonClient,
+        provider.slug,
+        { p_preferred_service_mode: "HOME_SERVICE" },
+      );
+      expect(unsupported.error?.message).toMatch(/UNSUPPORTED_SERVICE_MODE/);
+
+      assertSupabaseMutation(
+        await auth.client
+          .from("providers")
+          .update({ accepting_requests: false })
+          .eq("id", provider.providerId)
+          .select("id"),
+        "disable Provider Repair Requests",
+      );
+
+      const unavailable = await submitRepairRequestAs(
+        anonClient,
+        provider.slug,
+      );
+      expect(unavailable.error?.message).toMatch(/PROVIDER_UNAVAILABLE/);
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("Provider isolation protects Request review and decline creates no Repair", async () => {
+    const ownerA = await createTestUser(
+      adminClient,
+      uniqueEmail("request-owner-a"),
+      password,
+    );
+    const ownerB = await createTestUser(
+      adminClient,
+      uniqueEmail("request-owner-b"),
+      password,
+    );
+    const authA = await signInTestUser(ownerA.email, password);
+    const authB = await signInTestUser(ownerB.email, password);
+    const providerA = await createProviderAs(authA.client);
+    const providerB = await createProviderAs(authB.client);
+
+    try {
+      assertSupabaseSuccess(
+        await authA.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "configure Provider A Service Modes",
+      );
+      const submitted = assertSupabaseSuccess(
+        await submitRepairRequestAs(anonClient, providerA.slug),
+        "submit Provider A Repair Request",
+      );
+      const receipt = Array.isArray(submitted.data)
+        ? submitted.data[0]
+        : submitted.data;
+      const request = assertSupabaseSuccess(
+        await adminClient
+          .from("repair_requests")
+          .select("id")
+          .eq("reference_code", receipt.reference_code)
+          .single(),
+        "resolve Provider A Repair Request",
+      );
+      if (!request.data) {
+        throw new Error("Provider A Repair Request was not created");
+      }
+      const requestId = request.data.id;
+
+      const ownRows = assertSupabaseSuccess(
+        await authA.client.from("repair_requests").select("id"),
+        "Provider A lists own Requests",
+      );
+      const otherRows = assertSupabaseSuccess(
+        await authB.client.from("repair_requests").select("id"),
+        "Provider B lists Requests",
+      );
+      expect(ownRows.data?.map((row) => row.id)).toContain(requestId);
+      expect(otherRows.data?.map((row) => row.id)).not.toContain(requestId);
+
+      const directDecision = await authA.client
+        .from("repair_requests")
+        .update({ status: "DECLINED" })
+        .eq("id", requestId);
+      expect(directDecision.error).not.toBeNull();
+
+      const crossTenantDecline = await authB.client.rpc(
+        "decline_repair_request",
+        { p_request_id: requestId },
+      );
+      expect(crossTenantDecline.error?.message).toMatch(/REQUEST_NOT_FOUND/);
+
+      const declined = assertSupabaseSuccess(
+        await authA.client.rpc("decline_repair_request", {
+          p_request_id: requestId,
+        }),
+        "decline own Repair Request",
+      );
+      expect(declined.data?.[0]?.status).toBe("DECLINED");
+
+      const repairs = assertSupabaseSuccess(
+        await adminClient
+          .from("repairs")
+          .select("id")
+          .eq("repair_request_id", requestId),
+        "verify decline created no Repair",
+      );
+      expect(repairs.data).toHaveLength(0);
+
+      const repeatedDecline = await authA.client.rpc("decline_repair_request", {
+        p_request_id: requestId,
+      });
+      expect(repeatedDecline.error?.message).toMatch(
+        /REQUEST_ALREADY_PROCESSED/,
+      );
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [providerA.providerId, providerB.providerId],
+        userIds: [ownerA.user.id, ownerB.user.id],
+      });
+    }
+  });
+
+  it("concurrent acceptance creates one corrected IN_PROGRESS Repair and initial event", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("request-accept"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const provider = await createProviderAs(auth.client);
+
+    try {
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "configure acceptance Service Modes",
+      );
+      const submitted = assertSupabaseSuccess(
+        await submitRepairRequestAs(anonClient, provider.slug),
+        "submit Request for acceptance",
+      );
+      const receipt = Array.isArray(submitted.data)
+        ? submitted.data[0]
+        : submitted.data;
+      const request = assertSupabaseSuccess(
+        await adminClient
+          .from("repair_requests")
+          .select("id")
+          .eq("reference_code", receipt.reference_code)
+          .single(),
+        "resolve Request for acceptance",
+      );
+      if (!request.data) {
+        throw new Error("Repair Request for acceptance was not created");
+      }
+      const requestId = request.data.id;
+
+      const directRepairInsert = await auth.client
+        .from("repairs")
+        .insert({ provider_id: provider.providerId });
+      expect(directRepairInsert.error).not.toBeNull();
+
+      const attempts = await Promise.all([
+        auth.client.rpc(
+          "create_repair_from_request",
+          verifiedRepairInput(requestId),
+        ),
+        auth.client.rpc(
+          "create_repair_from_request",
+          verifiedRepairInput(requestId),
+        ),
+      ]);
+      const successful = attempts.filter((attempt) => !attempt.error);
+      const rejected = attempts.filter((attempt) => attempt.error);
+      expect(successful).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]?.error?.message).toMatch(/REQUEST_ALREADY_PROCESSED/);
+
+      const durableRequest = assertSupabaseSuccess(
+        await adminClient
+          .from("repair_requests")
+          .select("status, accepted_at, accepted_by_user_id")
+          .eq("id", requestId)
+          .single(),
+        "read accepted Request",
+      );
+      if (!durableRequest.data) {
+        throw new Error("Accepted Repair Request was not persisted");
+      }
+      expect(durableRequest.data.status).toBe("ACCEPTED");
+      expect(durableRequest.data.accepted_at).toBeTruthy();
+      expect(durableRequest.data.accepted_by_user_id).toBe(owner.user.id);
+
+      const repair = assertSupabaseSuccess(
+        await adminClient
+          .from("repairs")
+          .select(
+            "id, origin, current_status, customer_name, customer_phone, brand, model, diagnosis, internal_notes, ticket_number, tracking_code",
+          )
+          .eq("repair_request_id", requestId)
+          .single(),
+        "read accepted Request Repair",
+      );
+      if (!repair.data) {
+        throw new Error("Accepted Repair was not created");
+      }
+      expect(repair.data).toMatchObject({
+        origin: "CUSTOMER_REQUEST",
+        current_status: "IN_PROGRESS",
+        customer_name: "Verified Customer Name",
+        customer_phone: "+63 917 555 0199",
+        brand: "Verified Brand",
+        model: "Verified Model",
+        diagnosis: "Damaged charging port",
+        internal_notes: "Private intake note",
+      });
+      expect(repair.data.ticket_number).toMatch(/^TN-[0-9]{4}-[A-F0-9]{10}$/);
+      expect(repair.data.tracking_code).toMatch(/^TRK-[A-F0-9]{24}$/);
+
+      const events = assertSupabaseSuccess(
+        await adminClient
+          .from("repair_status_events")
+          .select("from_status, to_status, changed_by_user_id")
+          .eq("repair_id", repair.data.id),
+        "read initial Repair Status Event",
+      );
+      expect(events.data).toEqual([
+        {
+          from_status: null,
+          to_status: "IN_PROGRESS",
+          changed_by_user_id: owner.user.id,
+        },
+      ]);
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id],
       });
     }
   });

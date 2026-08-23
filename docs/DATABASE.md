@@ -18,7 +18,7 @@ provider_service_modes
 repair_requests
 repairs
 repair_status_events
-repair_updates
+repair_updates (Feature 04; not materialized yet)
 ```
 
 Authentication identities live in Supabase-managed `auth.users`.
@@ -123,17 +123,48 @@ Repeating relation of supported modes (`DROP_OFF`, `MEETUP`, `HOME_SERVICE`, `OT
 
 Customer-submitted intake awaiting Provider decision (`SUBMITTED`, `ACCEPTED`, `DECLINED`). Not an authoritative Repair.
 
+- Provider ownership, globally unique `REQ-[A-F0-9]{16}` Request Reference,
+  customer/device/problem snapshot, optional preferred Service Mode, and
+  decision audit columns.
+- status defaults `SUBMITTED`; check constraint keeps status, decision time, and
+  acting User consistent.
+- customer/device/problem text bounds mirror server-side Zod limits.
+- `(provider_id, status, submitted_at DESC)` supports inbox filtering.
+- authenticated Provider members can read only their Provider rows; direct
+  client mutation is denied.
+- anonymous submission is available only through `submit_repair_request`, which
+  returns Reference + submission time and creates no Repair.
+
 ### 8. `repairs`
 
 The authoritative repair record containing customer and device snapshots.
 
 - `repair_request_id` is nullable and unique so one Repair Request can create at most one Repair.
+- composite source foreign key requires Request and Repair to share Provider.
+- `origin` is `CUSTOMER_REQUEST` for Feature 03 acceptance;
+  `PROVIDER_CREATED` remains available for Feature 04 direct creation.
+- Ticket Number matches `TN-YYYY-[A-F0-9]{10}` and is unique per Provider.
+- Tracking Code matches `TRK-[A-F0-9]{24}` and is globally unique.
+- customer/device fields are authoritative snapshots; Reported Problem,
+  Diagnosis, and Internal Notes remain distinct columns.
 - Lifecycle: `IN_PROGRESS`, `WAITING_FOR_PARTS`, `AWAITING_APPROVAL`, `READY`, `COMPLETED`.
+- Feature 03 creates only initial `IN_PROGRESS` Repairs. Later state behavior is
+  implemented by Feature 04.
 
-### 9. `repair_status_events` & `repair_updates`
+### 9. `repair_status_events`
 
-- `repair_status_events`: Audit log of lifecycle transitions.
-- `repair_updates`: Customer-visible progress messages independent of status changes.
+- append-oriented audit log with `from_status`, `to_status`, acting User, and
+  timestamp;
+- initial event is `NULL -> IN_PROGRESS` and is committed atomically with
+  Request-origin Repair creation;
+- authenticated reads derive Provider ownership through parent Repair;
+- direct client writes are denied.
+
+### Planned Feature 04: `repair_updates`
+
+Customer-visible progress messages independent of status changes. This table is
+part of the accepted conceptual model but is not created by the Feature 03
+migration.
 
 ---
 
@@ -176,6 +207,13 @@ npx supabase db push
   - `create_provider_with_owner_and_modes(...)`: Composes the accepted creation procedure with description/request configuration and Service Mode replacement in the same transaction.
   - `set_provider_service_modes(service_modes)`: Owner-only atomic replacement of repeating Service Mode configuration, serialized with a Provider-row lock.
   - `accept_staff_invitation(token_hash, display_name, contact_phone)`: Transactionally locks invitation, verifies SHOP provider and single active membership invariant, creates person profile and `STAFF` membership, and marks token accepted.
+  - `submit_repair_request(...)`: Public allow-listed submission that locks the
+    Provider configuration and verifies current Request availability/mode.
+  - `decline_repair_request(request_id)`: Provider-authorized terminal decline
+    with Request row locking.
+  - `create_repair_from_request(request_id, verified_input...)`: Provider-
+    authorized Request lock plus atomic Repair, initial Status Event, and
+    accepted Request state.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
   SET search_path = public, pg_temp;
@@ -186,7 +224,7 @@ npx supabase db push
   cardinality/element bounds; email/URL syntax and device de-duplication remain
   application validation responsibilities.
 - Database triggers maintain `updated_at` for `providers` and
-  `provider_user_profiles`.
+  `provider_user_profiles`; Feature 03 also applies it to `repairs`.
 
 ### 5. Supabase CLI & State Hygiene
 

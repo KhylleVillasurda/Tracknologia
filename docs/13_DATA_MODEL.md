@@ -160,6 +160,15 @@ declined_by_user_id        uuid nullable
 
 A Repair Request belongs to exactly one Provider and is not an authoritative Repair.
 
+The implemented Feature 03 schema also enforces:
+
+- `reference_code` format `REQ-` + 16 uppercase hexadecimal characters;
+- bounded, nonblank customer name/phone, device type, and Reported Problem;
+- maximum lengths aligned with the Repair Requests Zod schema;
+- Service Mode details only when a preferred Service Mode exists;
+- terminal lifecycle consistency between status, timestamp, and acting User;
+- index `(provider_id, status, submitted_at DESC)` for the Provider inbox.
+
 ## repairs
 
 ```text
@@ -209,6 +218,21 @@ completed_at           timestamptz nullable
 
 This enforces "one Repair Request can produce at most one Repair" at the database level.
 
+The composite Request foreign key also guarantees the source Request and
+created Repair belong to the same Provider. Feature 03 creates only
+`CUSTOMER_REQUEST` Repairs; the nullable relationship and
+`PROVIDER_CREATED` origin are retained for Feature 04 direct creation.
+
+Implemented identifiers use:
+
+```text
+Ticket Number   TN-YYYY-XXXXXXXXXX   unique per Provider
+Tracking Code   TRK-XXXXXXXXXXXXXXXXXXXXXXXX   globally unique
+```
+
+The Tracking Code is random rather than sequential and remains distinct from
+both Ticket Number and Request Reference.
+
 ## repair_status_events
 
 ```text
@@ -221,6 +245,9 @@ created_at             timestamptz
 ```
 
 The initial event is `NULL -> IN_PROGRESS`.
+
+Feature 03 inserts this initial event in the same database transaction that
+creates the Request-origin Repair and marks the source Request `ACCEPTED`.
 
 Status history remains separate because it is inherently repeating and required for lifecycle history/validation.
 
