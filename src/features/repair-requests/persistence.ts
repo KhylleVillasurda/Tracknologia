@@ -4,12 +4,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type {
   RepairRequestDetail,
-  RepairRequestFilter,
+  RepairRequestListOptions,
+  RepairRequestPage,
   RepairRequestReceipt,
   RepairRequestSummary,
   SubmitRepairRequestInput,
 } from "./types";
 import { RepairRequestError } from "./types";
+
+const REPAIR_REQUEST_PAGE_SIZE = 25;
 
 function throwRepairRequestPersistenceError(
   operation: string,
@@ -102,8 +105,10 @@ export async function submitRepairRequestRecord(
 export async function listRepairRequestRecords(
   supabase: SupabaseClient,
   providerId: string,
-  filter: RepairRequestFilter,
-): Promise<RepairRequestSummary[]> {
+  options: RepairRequestListOptions,
+): Promise<RepairRequestPage> {
+  const page = options.page ?? 1;
+  const offset = (page - 1) * REPAIR_REQUEST_PAGE_SIZE;
   let query = supabase
     .from("repair_requests")
     .select(
@@ -111,18 +116,28 @@ export async function listRepairRequestRecords(
     )
     .eq("provider_id", providerId)
     .order("submitted_at", { ascending: false })
-    .limit(100);
+    .order("id", { ascending: false });
 
-  if (filter.status) {
-    query = query.eq("status", filter.status);
+  if (options.status) {
+    query = query.eq("status", options.status);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await query.range(
+    offset,
+    offset + REPAIR_REQUEST_PAGE_SIZE,
+  );
   if (error) {
     throw new Error(`Failed to list Repair Requests: ${error.message}`);
   }
 
-  return (data ?? []).map(mapRepairRequestSummary);
+  const rows = data ?? [];
+
+  return {
+    items: rows.slice(0, REPAIR_REQUEST_PAGE_SIZE).map(mapRepairRequestSummary),
+    page,
+    hasPrevious: page > 1,
+    hasNext: rows.length > REPAIR_REQUEST_PAGE_SIZE,
+  };
 }
 
 export async function getRepairRequestRecord(

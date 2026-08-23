@@ -61,8 +61,16 @@ export interface RepairRequestDetail extends RepairRequestSummary {
   declinedByUserId?: string | null;
 }
 
-export interface RepairRequestFilter {
+export interface RepairRequestListOptions {
   status?: RepairRequestStatus;
+  page?: number;
+}
+
+export interface RepairRequestPage {
+  items: RepairRequestSummary[];
+  page: number;
+  hasPrevious: boolean;
+  hasNext: boolean;
 }
 
 export type AcceptedRepairResult = RepairResult;

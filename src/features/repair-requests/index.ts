@@ -8,8 +8,9 @@ export { getRepairRequest, listRepairRequests } from "./queries";
 
 export {
   providerRequestSlugSchema,
-  repairRequestFilterSchema,
   repairRequestIdSchema,
+  repairRequestListOptionsSchema,
+  repairRequestPageSchema,
   repairRequestStatusEnum,
   submitRepairRequestSchema,
   type SubmitRepairRequestSchemaInput,
@@ -20,7 +21,8 @@ export {
   type AcceptedRepairResult,
   type RepairRequestDetail,
   type RepairRequestErrorCode,
-  type RepairRequestFilter,
+  type RepairRequestListOptions,
+  type RepairRequestPage,
   type RepairRequestReceipt,
   type RepairRequestStatus,
   type RepairRequestSummary,

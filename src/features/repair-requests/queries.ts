@@ -9,20 +9,23 @@ import {
   getRepairRequestRecord,
   listRepairRequestRecords,
 } from "./persistence";
-import { repairRequestFilterSchema, repairRequestIdSchema } from "./schemas";
+import {
+  repairRequestIdSchema,
+  repairRequestListOptionsSchema,
+} from "./schemas";
 import type {
   RepairRequestDetail,
-  RepairRequestFilter,
-  RepairRequestSummary,
+  RepairRequestListOptions,
+  RepairRequestPage,
 } from "./types";
 
 export async function listRepairRequests(
-  filter: RepairRequestFilter = {},
+  options: RepairRequestListOptions = {},
   client?: SupabaseClient,
-): Promise<RepairRequestSummary[]> {
-  const parsed = repairRequestFilterSchema.safeParse(filter);
+): Promise<RepairRequestPage> {
+  const parsed = repairRequestListOptionsSchema.safeParse(options);
   if (!parsed.success) {
-    throw new Error("Invalid Repair Request filter");
+    throw new Error("Invalid Repair Request list options");
   }
 
   const supabase = client ?? (await createClient());
