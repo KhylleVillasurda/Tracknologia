@@ -2,27 +2,37 @@ import "server-only";
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { requireProviderRole } from "@/features/auth";
+import { requireProviderRole, requireUser } from "@/features/auth";
 import {
   acceptStaffInvitation as acceptStaffInvitationPersistence,
   createProviderWithOwner,
   hashInvitationToken,
   insertStaffInvitationRecord,
+  replaceProviderServiceModes,
   revokeStaffInvitation as revokeStaffInvitationPersistence,
+  updateProviderProfileRecord,
+  updateProviderUserProfileRecord,
 } from "./persistence";
-import { acceptStaffInvitationSchema, staffInvitationSchema } from "./schemas";
+import {
+  acceptStaffInvitationSchema,
+  createIndependentProviderSchema,
+  createShopProviderSchema,
+  providerServiceModesSchema,
+  staffInvitationSchema,
+  updateProviderProfileSchema,
+  updateProviderUserProfileSchema,
+} from "./schemas";
 import type {
   AcceptStaffInvitationInput,
   CreateProviderInput,
+  Provider,
   ProviderInvitation,
+  ProviderServiceMode,
+  ProviderUserProfile,
+  UpdateProviderProfileInput,
+  UpdateProviderUserProfileInput,
 } from "./types";
 import { sendStaffInviteEmail } from "@/lib/email/client";
-
-import { requireUser } from "@/features/auth";
-import {
-  createIndependentProviderSchema,
-  createShopProviderSchema,
-} from "./schemas";
 
 /**
  * Creates a new Provider with its initial OWNER membership and person profile atomically.
@@ -44,11 +54,16 @@ export async function createProvider(
   if (input.providerType === "INDEPENDENT") {
     const parsed = createIndependentProviderSchema.safeParse({
       ownerName: input.ownerDisplayName,
+      ownerContactPhone: input.ownerContactPhone,
       displayName: input.displayName,
+      description: input.description,
       contactEmail: input.contactEmail,
       contactPhone: input.contactPhone,
+      publicAddress: input.publicAddress,
       serviceArea: input.serviceArea,
       supportedDevices: input.supportedDevices,
+      serviceModes: input.serviceModes,
+      acceptingRequests: input.acceptingRequests,
     });
     if (!parsed.success) {
       throw new Error(
@@ -58,12 +73,16 @@ export async function createProvider(
   } else if (input.providerType === "SHOP") {
     const parsed = createShopProviderSchema.safeParse({
       ownerName: input.ownerDisplayName,
+      ownerContactPhone: input.ownerContactPhone,
       displayName: input.displayName,
+      description: input.description,
       contactEmail: input.contactEmail,
       contactPhone: input.contactPhone,
       publicAddress: input.publicAddress,
       serviceArea: input.serviceArea,
       supportedDevices: input.supportedDevices,
+      serviceModes: input.serviceModes,
+      acceptingRequests: input.acceptingRequests,
     });
     if (!parsed.success) {
       throw new Error(
@@ -84,16 +103,101 @@ export async function createProvider(
     ownerContactPhone: input.ownerContactPhone
       ? input.ownerContactPhone.trim()
       : undefined,
+    description: input.description ? input.description.trim() : undefined,
     contactEmail: input.contactEmail
       ? input.contactEmail.trim().toLowerCase()
       : undefined,
     contactPhone: input.contactPhone ? input.contactPhone.trim() : undefined,
     publicAddress: input.publicAddress ? input.publicAddress.trim() : undefined,
     serviceArea: input.serviceArea ? input.serviceArea.trim() : undefined,
-    supportedDevices: input.supportedDevices || [],
+    supportedDevices: [...new Set(input.supportedDevices || [])],
+    serviceModes: (input.serviceModes || []).map((mode) => ({
+      mode: mode.mode,
+      details: mode.details?.trim() || null,
+    })),
+    acceptingRequests: input.acceptingRequests ?? true,
   };
 
   return createProviderWithOwner(supabase, normalizedInput);
+}
+
+/**
+ * Updates the authenticated Owner's Provider business profile.
+ * Provider identity, type, slug, and ownership are intentionally not editable.
+ */
+export async function updateProviderProfile(
+  input: UpdateProviderProfileInput,
+  client?: SupabaseClient,
+): Promise<Provider> {
+  const supabase = client ?? (await createClient());
+  const context = await requireProviderRole(["OWNER"], supabase);
+  const parsed = updateProviderProfileSchema.safeParse(input);
+
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid Provider profile input",
+    );
+  }
+
+  return updateProviderProfileRecord(supabase, context.providerId, {
+    displayName: parsed.data.displayName,
+    description: parsed.data.description || undefined,
+    profileImageUrl: parsed.data.profileImageUrl || undefined,
+    contactPhone: parsed.data.contactPhone || undefined,
+    contactEmail: parsed.data.contactEmail
+      ? parsed.data.contactEmail.toLowerCase()
+      : undefined,
+    publicAddress: parsed.data.publicAddress || undefined,
+    serviceArea: parsed.data.serviceArea || undefined,
+    supportedDevices: parsed.data.supportedDevices,
+    acceptingRequests: parsed.data.acceptingRequests,
+  });
+}
+
+/** Updates the authenticated user's canonical person profile only. */
+export async function updateCurrentProviderUserProfile(
+  input: UpdateProviderUserProfileInput,
+  client?: SupabaseClient,
+): Promise<ProviderUserProfile> {
+  const supabase = client ?? (await createClient());
+  const user = await requireUser(supabase);
+  const parsed = updateProviderUserProfileSchema.safeParse(input);
+
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid personal profile input",
+    );
+  }
+
+  return updateProviderUserProfileRecord(supabase, user.id, {
+    displayName: parsed.data.displayName,
+    contactPhone: parsed.data.contactPhone || undefined,
+    avatarUrl: parsed.data.avatarUrl || undefined,
+  });
+}
+
+/** Atomically replaces the authenticated Owner's supported Service Modes. */
+export async function setServiceModes(
+  modes: ProviderServiceMode[],
+  client?: SupabaseClient,
+): Promise<ProviderServiceMode[]> {
+  const supabase = client ?? (await createClient());
+  await requireProviderRole(["OWNER"], supabase);
+  const parsed = providerServiceModesSchema.safeParse(modes);
+
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid Service Mode configuration",
+    );
+  }
+
+  return replaceProviderServiceModes(
+    supabase,
+    parsed.data.map((mode) => ({
+      mode: mode.mode,
+      details: mode.details || null,
+    })),
+  );
 }
 
 export interface CreateStaffInvitationResult {

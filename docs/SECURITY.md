@@ -50,6 +50,25 @@ Enforce this twice:
 1. application authorization in Tracknologia features;
 2. PostgreSQL RLS policies as defense in depth.
 
+Provider profile mutation is additionally constrained by column-level grants:
+Owners may edit operating/profile fields, but authenticated clients cannot
+rewrite Provider type, slug, ownership, IDs, or timestamps. Direct writes to
+`provider_service_modes` are denied; the Owner-only
+`set_provider_service_modes` RPC replaces modes atomically and serializes
+same-Provider calls with a row lock. Database checks bound direct profile values
+that bypass application validation.
+
+## Public Provider and invitation projections
+
+Anonymous users cannot read raw Provider rows. `public_provider_profiles`
+allow-lists public identity, address/area, devices, Service Modes, and request
+availability only for Providers accepting Requests. It excludes internal
+contact fields and update timestamps.
+
+Possessing a Staff invitation token permits a restricted lookup of the invited
+email and public Shop identity. The lookup does not return the Provider's
+private contact email or phone.
+
 ## Server Actions and Route Handlers
 
 Treat every mutation interface as externally callable.
@@ -111,6 +130,13 @@ At minimum test:
 - Provider A cannot read/update Provider B Repair;
 - Provider A cannot accept Provider B Repair Request;
 - unauthenticated users cannot access Provider data;
+- Provider Owners cannot rewrite Provider type or slug through profile updates;
+- Staff cannot update Provider operating fields or Service Modes;
+- Staff can update only their own person profile;
+- failed configured onboarding and Service Mode replacement leave no partial state;
+- concurrent Service Mode replacement leaves exactly one submitted set;
+- direct profile writes cannot exceed durable database bounds;
+- anonymous Provider/invitation projections exclude private contact fields;
 - public tracking does not expose internal notes/contact data;
 - invalid tracking identifiers reveal no sensitive information;
 - accepted Repair Request cannot create multiple Repairs;

@@ -23,8 +23,14 @@ Unit tests cover deterministic helpers and domain rules without a live database.
 - public address is optional where allowed;
 - supported Service Modes are persisted correctly;
 - `OTHER` mode details can be recorded;
+- duplicate/invalid Service Modes roll back the complete Provider onboarding operation;
+- Service Mode replacement is atomic, serialized per Provider, and direct table mutation is denied;
 - accepting Requests can be enabled/disabled;
+- Owners may change operating fields but cannot change Provider type or slug;
+- Staff may update only their own person profile, not Provider configuration;
+- direct Provider/person-profile writes cannot bypass durable database bounds;
 - staff invitation creation, one-way SHA-256 token hashing, single-use acceptance, and revocation;
+- invitation detail lookup excludes private Provider contact information;
 - public provider lookup by slug or ID queries `public_provider_profiles` projection only.
 
 ### Repair Requests
@@ -69,6 +75,10 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - membership uniqueness;
 - person profile (`provider_user_profiles`) separation;
 - Service Mode uniqueness;
+- standalone Service Mode replacement rollback and same-Provider concurrency;
+- Staff denial for Provider settings and Service Modes;
+- Staff own-profile permission and other-profile denial;
+- durable Provider/person-profile size and device-cardinality constraints;
 - Request Reference uniqueness;
 - Tracking Code uniqueness;
 - `repair_request_id` one-to-one constraint;

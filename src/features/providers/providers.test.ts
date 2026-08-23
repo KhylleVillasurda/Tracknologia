@@ -8,17 +8,15 @@ import {
   createShopProviderSchema,
   staffInvitationSchema,
   acceptStaffInvitationSchema,
+  providerServiceModesSchema,
 } from "./schemas";
 import {
   hashInvitationToken,
   createProviderWithOwner,
   acceptStaffInvitation as acceptStaffInvitationPersistence,
-  getInvitationDetailsByTokenHash,
   insertStaffInvitationRecord,
-  listStaffInvitations,
   listTeamMembers,
   getPublicProviderProfile,
-  getProviderUserProfile,
 } from "./persistence";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -33,7 +31,7 @@ function createMockSupabase(options: {
       if (options.rpcError) {
         return Promise.resolve({ data: null, error: options.rpcError });
       }
-      if (fn === "create_provider_with_owner") {
+      if (fn === "create_provider_with_owner_and_modes") {
         return Promise.resolve({
           data: options.rpcData ?? [
             {
@@ -94,7 +92,7 @@ function createMockSupabase(options: {
       }
       return Promise.resolve({ data: null, error: null });
     }),
-    from: vi.fn().mockImplementation((table: string) => {
+    from: vi.fn().mockImplementation(() => {
       const mockQuery: Record<string, unknown> = {
         insert: vi.fn().mockReturnValue({
           select: vi.fn().mockReturnValue({
@@ -147,6 +145,10 @@ function createMockSupabase(options: {
                 display_name: "Apex Electronics",
                 slug: "apex-electronics",
                 supported_devices: ["Smartphones"],
+                service_modes: [
+                  { mode: "DROP_OFF", details: null },
+                  { mode: "HOME_SERVICE", details: null },
+                ],
                 accepting_requests: true,
                 created_at: "2026-08-20T00:00:00Z",
               },
@@ -232,9 +234,11 @@ describe("Providers Module — Schemas Validation", () => {
   });
 
   it("validates Accept staff invitation inputs", () => {
+    const validToken = `inv_${"a".repeat(48)}`;
+
     expect(
       acceptStaffInvitationSchema.safeParse({
-        token: "inv_1234567890",
+        token: validToken,
         displayName: "Carlos Gomez",
         contactPhone: "+63 912 345 6789",
       }).success,
@@ -254,6 +258,22 @@ describe("Providers Module — Schemas Validation", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("validates unique Provider Service Modes", () => {
+    expect(
+      providerServiceModesSchema.safeParse([
+        { mode: "DROP_OFF" },
+        { mode: "HOME_SERVICE" },
+      ]).success,
+    ).toBe(true);
+
+    expect(
+      providerServiceModesSchema.safeParse([
+        { mode: "MEETUP" },
+        { mode: "MEETUP" },
+      ]).success,
+    ).toBe(false);
+  });
 });
 
 describe("Providers Module — Persistence & Token Hashing", () => {
@@ -267,7 +287,7 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     expect(digest1).not.toEqual(rawToken);
   });
 
-  it("createProviderWithOwner calls create_provider_with_owner RPC atomically with all initial fields", async () => {
+  it("createProviderWithOwner calls the atomic Provider and Service Modes RPC with all initial fields", async () => {
     const mockClient = createMockSupabase({
       rpcData: [
         {
@@ -283,9 +303,15 @@ describe("Providers Module — Persistence & Token Hashing", () => {
       providerType: "SHOP",
       ownerDisplayName: "Maria Santos",
       ownerContactPhone: "+63 912 345 6789",
+      description: "Repairs phones and computers",
       publicAddress: "123 Tech St",
       serviceArea: "Cebu",
       supportedDevices: ["Smartphones"],
+      serviceModes: [
+        { mode: "DROP_OFF" },
+        { mode: "OTHER", details: "Courier collection" },
+      ],
+      acceptingRequests: true,
     });
 
     expect(result).toEqual({
@@ -293,17 +319,26 @@ describe("Providers Module — Persistence & Token Hashing", () => {
       membershipId: "mem-123",
       slug: "apex-repairs",
     });
-    expect(mockClient.rpc).toHaveBeenCalledWith("create_provider_with_owner", {
-      p_display_name: "Apex Repairs",
-      p_provider_type: "SHOP",
-      p_owner_display_name: "Maria Santos",
-      p_owner_contact_phone: "+63 912 345 6789",
-      p_contact_email: null,
-      p_contact_phone: null,
-      p_public_address: "123 Tech St",
-      p_service_area: "Cebu",
-      p_supported_devices: ["Smartphones"],
-    });
+    expect(mockClient.rpc).toHaveBeenCalledWith(
+      "create_provider_with_owner_and_modes",
+      {
+        p_display_name: "Apex Repairs",
+        p_provider_type: "SHOP",
+        p_owner_display_name: "Maria Santos",
+        p_owner_contact_phone: "+63 912 345 6789",
+        p_description: "Repairs phones and computers",
+        p_contact_email: null,
+        p_contact_phone: null,
+        p_public_address: "123 Tech St",
+        p_service_area: "Cebu",
+        p_supported_devices: ["Smartphones"],
+        p_service_modes: [
+          { mode: "DROP_OFF" },
+          { mode: "OTHER", details: "Courier collection" },
+        ],
+        p_accepting_requests: true,
+      },
+    );
   });
 
   it("acceptStaffInvitation calls accept_staff_invitation RPC with token digest", async () => {
@@ -374,5 +409,9 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     expect(profile).not.toBeNull();
     expect(profile?.displayName).toBe("Apex Electronics");
     expect(profile?.acceptingRequests).toBe(true);
+    expect(profile?.serviceModes).toEqual([
+      { mode: "DROP_OFF", details: null },
+      { mode: "HOME_SERVICE", details: null },
+    ]);
   });
 });

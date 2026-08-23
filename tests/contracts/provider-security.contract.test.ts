@@ -53,6 +53,7 @@ describe("Provider Security & Invariant Contract Rules", () => {
         public_address: "123 Tech Lane",
         service_area: "Cebu City",
         supported_devices: ["Smartphones"],
+        service_modes: [{ mode: "DROP_OFF", details: null }],
         accepting_requests: true,
         created_at: "2026-08-20T00:00:00Z",
         updated_at: "2026-08-20T00:00:00Z",
@@ -68,6 +69,7 @@ describe("Provider Security & Invariant Contract Rules", () => {
         "public_address",
         "service_area",
         "supported_devices",
+        "service_modes",
         "accepting_requests",
         "created_at",
       ];

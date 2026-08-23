@@ -6,6 +6,7 @@ import {
   getProviderById,
   getProviderUserProfile as getProviderUserProfilePersistence,
   getPublicProviderProfile,
+  getProviderServiceModeRecords,
   hashInvitationToken,
   listStaffInvitations as listStaffInvitationsPersistence,
   listTeamMembers as listTeamMembersPersistence,
@@ -14,10 +15,12 @@ import type {
   InvitationShopDetails,
   Provider,
   ProviderInvitation,
+  ProviderServiceMode,
   ProviderUserProfile,
   PublicProviderProfile,
   TeamMember,
 } from "./types";
+import { acceptStaffInvitationSchema } from "./schemas";
 
 export async function getProvider(
   providerId: string,
@@ -40,8 +43,21 @@ export async function getInvitationForOnboarding(
   client?: SupabaseClient,
 ): Promise<InvitationShopDetails | null> {
   const supabase = client ?? (await createClient());
-  const tokenHash = hashInvitationToken(rawToken);
+  const tokenResult =
+    acceptStaffInvitationSchema.shape.token.safeParse(rawToken);
+  if (!tokenResult.success) {
+    return null;
+  }
+  const tokenHash = hashInvitationToken(tokenResult.data);
   return getInvitationDetailsByTokenHash(supabase, tokenHash);
+}
+
+export async function getProviderServiceModes(
+  providerId: string,
+  client?: SupabaseClient,
+): Promise<ProviderServiceMode[]> {
+  const supabase = client ?? (await createClient());
+  return getProviderServiceModeRecords(supabase, providerId);
 }
 
 export async function listTeamMembers(

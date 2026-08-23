@@ -62,12 +62,29 @@ auth.users
 - `UNIQUE(provider_id, user_id)` on `provider_memberships`.
 - `UNIQUE(token_hash)` on `provider_invitations`.
 - Direct client `INSERT` on `provider_memberships` is forbidden to prevent unauthorized self-assignment.
-- Independent Repairer & Shop Owner onboarding use atomic `create_provider_with_owner` procedure.
+- Independent Repairer & Shop Owner onboarding use atomic
+  `create_provider_with_owner_and_modes` composition, which provisions Provider,
+  person profile, OWNER membership, operating fields, and Service Modes in one transaction.
 - Shop Staff onboarding uses atomic `accept_staff_invitation` procedure.
 
 ### Provider Service Modes
 
-`PRIMARY KEY(provider_id, mode)`.
+- `PRIMARY KEY(provider_id, mode)` prevents duplicate modes.
+- `details` is limited to 240 characters.
+- authenticated members can read modes for their Provider;
+- direct authenticated writes are denied;
+- Owners replace modes atomically through `set_provider_service_modes`;
+- a Provider-row lock serializes concurrent replacements for the same Provider.
+
+### Provider profile update surface
+
+Authenticated `UPDATE` grants on `providers` are limited to the explicit
+operating/profile columns. Provider type, slug, IDs, ownership, and timestamps
+are not client-editable. `providers.updated_at` and
+`provider_user_profiles.updated_at` are database-maintained by triggers.
+Database checks enforce Provider/person-profile text lengths and supported-device
+cardinality/element bounds so direct REST updates cannot bypass durable limits.
+Email/URL syntax and device de-duplication remain Module validation rules.
 
 ### Repair Request
 
