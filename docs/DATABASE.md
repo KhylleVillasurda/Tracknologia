@@ -18,7 +18,7 @@ provider_service_modes
 repair_requests
 repairs
 repair_status_events
-repair_updates (Feature 04; not materialized yet)
+repair_updates
 ```
 
 Authentication identities live in Supabase-managed `auth.users`.
@@ -141,30 +141,42 @@ The authoritative repair record containing customer and device snapshots.
 
 - `repair_request_id` is nullable and unique so one Repair Request can create at most one Repair.
 - composite source foreign key requires Request and Repair to share Provider.
-- `origin` is `CUSTOMER_REQUEST` for Feature 03 acceptance;
-  `PROVIDER_CREATED` remains available for Feature 04 direct creation.
+- `origin` is `CUSTOMER_REQUEST` for accepted Requests and
+  `PROVIDER_CREATED` for direct Provider intake.
 - Ticket Number matches `TN-YYYY-[A-F0-9]{10}` and is unique per Provider.
 - Tracking Code matches `TRK-[A-F0-9]{24}` and is globally unique.
 - customer/device fields are authoritative snapshots; Reported Problem,
   Diagnosis, and Internal Notes remain distinct columns.
 - Lifecycle: `IN_PROGRESS`, `WAITING_FOR_PARTS`, `AWAITING_APPROVAL`, `READY`, `COMPLETED`.
-- Feature 03 creates only initial `IN_PROGRESS` Repairs. Later state behavior is
-  implemented by Feature 04.
+- every origin begins `IN_PROGRESS`; later state behavior is implemented by
+  Feature 04's locked lifecycle transaction.
+- authenticated detail edits are restricted to explicit customer/device and
+  Provider-authored columns; identity, origin, lifecycle, identifiers,
+  ownership, and timestamps are not client-editable.
+- `service_mode` remains a historical Repair snapshot when Provider
+  configuration changes. An actual mode update invokes
+  `enforce_repair_service_mode_update`, which locks the Provider row `FOR SHARE`
+  and rejects an unsupported new non-null value. This serializes with
+  `set_provider_service_modes` without adding a foreign key to mutable
+  configuration.
 
 ### 9. `repair_status_events`
 
 - append-oriented audit log with `from_status`, `to_status`, acting User, and
   timestamp;
-- initial event is `NULL -> IN_PROGRESS` and is committed atomically with
-  Request-origin Repair creation;
+- initial event is `NULL -> IN_PROGRESS` and is committed atomically with both
+  direct and Request-origin Repair creation;
+- later events commit atomically with `current_status` and `completed_at`;
 - authenticated reads derive Provider ownership through parent Repair;
 - direct client writes are denied.
 
-### Planned Feature 04: `repair_updates`
+### 10. `repair_updates`
 
 Customer-visible progress messages independent of status changes. This table is
-part of the accepted conceptual model but is not created by the Feature 03
-migration.
+append-only for authenticated members of the owning Provider. Messages are
+nonblank and at most 2,000 characters. RLS derives ownership through the parent
+Repair; authenticated roles have no update/delete privilege and anonymous roles
+have no raw access.
 
 ---
 
@@ -214,6 +226,11 @@ npx supabase db push
   - `create_repair_from_request(request_id, verified_input...)`: Provider-
     authorized Request lock plus atomic Repair, initial Status Event, and
     accepted Request state.
+  - `create_provider_repair(input...)`: Provider-authorized direct Repair plus
+    initial Status Event committed atomically.
+  - `change_repair_status(repair_id, next_status)`: Provider-authorized Repair
+    row lock, exact transition recheck, status/event update, and completion
+    timestamp maintenance.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
   SET search_path = public, pg_temp;
@@ -223,8 +240,10 @@ npx supabase db push
 - Provider/person-profile checks enforce durable text lengths and supported-device
   cardinality/element bounds; email/URL syntax and device de-duplication remain
   application validation responsibilities.
-- Database triggers maintain `updated_at` for `providers` and
-  `provider_user_profiles`; Feature 03 also applies it to `repairs`.
+- Database triggers maintain `updated_at` for `providers`,
+  `provider_user_profiles`, and `repairs`.
+- The Repair Service Mode trigger is not a business-service surface: it repeats
+  the Module invariant at write time for direct-client and concurrency safety.
 
 ### 5. Supabase CLI & State Hygiene
 

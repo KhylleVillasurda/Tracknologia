@@ -70,7 +70,26 @@ Feature-local validation coverage lives in
 - invalid transitions fail;
 - status change appends Status Event;
 - Customer Update can be added without status change;
-- completion sets terminal state/timestamp.
+- completion sets terminal state/timestamp;
+- shared direct/request/detail schemas enforce durable snapshot bounds;
+- detail edits preserve a recorded Service Mode when it is omitted and allow
+  only an explicit clear or a currently configured replacement;
+- list search accepts common punctuation while safely quoting/escaping raw
+  PostgREST filter values, and pages remain stable;
+- the aggregate `WAITING` filter returns both waiting states only;
+- immutable Repair identity/lifecycle columns reject direct authenticated
+  updates;
+- concurrent same-Repair transitions serialize to one durable outcome;
+- Provider A cannot read, edit, transition, or append updates to Provider B's
+  Repair;
+- Customer Updates are append-only and direct Status Event writes remain
+  denied.
+
+Feature-local validation and lifecycle coverage lives in
+`src/features/repairs/repairs.test.ts`. Feature 04 PostgreSQL/RLS cases extend
+`tests/integration/db.test.ts` and require the
+`20260824023000_complete_repairs.sql` and
+`20260824024000_harden_repair_service_mode_updates.sql` migrations.
 
 ### Tracking
 
@@ -117,7 +136,20 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - Atomic staff invitation acceptance + person profile + membership creation;
 - Provider RLS isolation (hostile cross-tenant queries denied);
 - Public projection RLS (anonymous cannot query private columns of `providers`);
-- child Status Event/Update access isolation.
+- child Status Event/Update access isolation;
+- direct Provider creation plus initial `NULL -> IN_PROGRESS` event;
+- allow-listed Repair detail update versus protected identity/lifecycle
+  columns;
+- historical Repair Service Mode preservation after Provider configuration
+  removal;
+- direct unsupported Repair mode replacement denial with durable-state
+  preservation;
+- Repair mode edit versus Provider Service Mode replacement serialization;
+- punctuation-safe Repair search and aggregate Waiting filtering;
+- every allowed and rejected Repair transition;
+- completion timestamp consistency and reopening denial;
+- same-Repair transition concurrency under row locking;
+- append-only Customer Update permissions and status independence.
 
 Any security-sensitive database change, including schema, RLS, policy, constraint, trigger, or RPC changes, requires the real PostgreSQL / RLS integration suite before completion.
 

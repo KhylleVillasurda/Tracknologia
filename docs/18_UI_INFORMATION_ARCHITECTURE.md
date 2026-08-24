@@ -59,6 +59,9 @@ Completed
 [ + Create Repair ]
 ```
 
+The Waiting summary links to an aggregate Repair view containing both
+`WAITING_FOR_PARTS` and `AWAITING_APPROVAL`, matching the displayed count.
+
 Do not force shop-only widgets such as branch/staff workload onto Independent Repairers.
 
 ### Repair list item
@@ -73,6 +76,17 @@ Battery issue
 IN_PROGRESS
 Updated 10:32
 ```
+
+Repair search accepts common customer/device punctuation. Invalid bounded input
+is preserved in the field and receives an inline validation message rather than
+silently opening the unfiltered list.
+
+### Repair detail editing
+
+If the Repair's recorded Service Mode is no longer configured, keep it visible
+and selected in the edit form with a clear "recorded on this Repair; no longer
+offered" note. The Provider User may preserve it or intentionally choose no
+mode/currently offered mode; the UI must not erase it during an unrelated edit.
 
 ### Repair Request review
 

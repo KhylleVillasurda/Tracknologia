@@ -50,6 +50,12 @@ export default async function DashboardLayout({
               >
                 Requests
               </Link>
+              <Link
+                href="/dashboard/repairs"
+                className="text-muted-foreground font-medium transition-colors hover:text-foreground"
+              >
+                Repairs
+              </Link>
               {context.providerType === "SHOP" && (
                 <Link
                   href="/dashboard/team"
@@ -96,6 +102,12 @@ export default async function DashboardLayout({
             className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
           >
             Requests
+          </Link>
+          <Link
+            href="/dashboard/repairs"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Repairs
           </Link>
           {context.providerType === "SHOP" && (
             <Link

@@ -194,6 +194,9 @@ browser-supplied `providerId`, role, or user ID for these mutations.
 12. Service Mode replacement is atomic, serialized per Provider, and direct authenticated table writes are denied.
 13. Anonymous invitation lookup reveals the intended email and public Shop identity, but never private Provider contact fields.
 14. Database constraints enforce durable Provider/person-profile size bounds even when an Owner bypasses the application forms.
+15. Removing a configured Service Mode does not invalidate historical Repairs;
+    replacement serializes with intentional Repair mode changes through the
+    Provider-row lock.
 
 ## Testing expectations
 
@@ -211,6 +214,8 @@ Test:
 - Staff cannot update Provider configuration or Service Modes;
 - Staff can update only their own person profile;
 - Service Mode replacement prevents duplicates, partial state, and mixed results from concurrent replacements;
+- Service Mode replacement raced with a Repair mode edit produces one valid
+  serialized outcome without erasing or invalidating historical Repair data;
 - direct profile writes cannot bypass durable database size bounds;
 - anonymous invitation detail lookup excludes private contact fields;
 - cross-Provider isolation and RLS enforcement.
