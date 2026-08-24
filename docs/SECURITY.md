@@ -117,7 +117,8 @@ Client-side validation improves usability but is not a security control.
 
 Tracking codes must be difficult to enumerate and should not equal sequential ticket numbers.
 
-The public tracking feature returns only a safe `PublicRepairView`, for example:
+The public tracking feature returns only a safe `PublicRepairView` through
+`lookup_public_repair(text)`, for example:
 
 ```text
 provider name
@@ -127,7 +128,27 @@ customer-visible update
 last updated timestamp
 ```
 
-Never expose internal notes, private identifiers, contact data or complete Repair rows through the public interface.
+The function bounds and validates direct RPC input, fixes its `search_path`,
+returns explicitly declared columns, and caps nested Updates at 25
+message/timestamp pairs. Anonymous callers have execute permission on this
+function but no direct read privilege on Provider, Repair, Customer Update, or
+Status Event tables. Disabling new Requests does not hide Tracking for existing
+Repairs.
+
+The Tracking Module rejects raw input longer than 128 characters before
+normalization or persistence, strictly validates the database row, and
+constructs output field-by-field. Invalid, oversized, and unknown codes share a
+neutral result, and the public form uses POST rather than a credential-bearing
+URL.
+
+Never expose customer identity/contact, Internal Notes, Diagnosis, serial
+numbers/specifications, free-form Service Mode details, Ticket Number, echoed
+Tracking Code, private identifiers, Update authors, audit history, or complete
+Repair rows through the public Interface.
+
+Production exposure still requires durable abuse/rate limiting that protects
+the directly callable Supabase function as well as the Next.js route. Do not
+represent a per-process memory counter as sufficient distributed protection.
 
 ## Public Repair Requests
 
@@ -187,13 +208,17 @@ At minimum test:
 - anonymous Provider/invitation projections exclude private contact fields;
 - public tracking does not expose internal notes/contact data;
 - invalid tracking identifiers reveal no sensitive information;
+- public tracking caps Updates and returns message/timestamp pairs only;
+- anonymous callers cannot read raw Repair/Update/Status Event tables;
+- direct and Request-origin Repairs share one public projection;
+- closing new Requests does not disable existing Repair tracking;
 - accepted Repair Request cannot create multiple Repairs;
 - concurrent acceptance creates one Repair and one initial Status Event;
 - decline creates no Repair and cannot be repeated;
 - Provider B cannot list, accept, or decline Provider A Request;
 - anonymous callers cannot read Request contact/device/problem data;
 - closed Provider and unsupported Service Mode public submissions fail;
-- illegal Repair status transitions are rejected.
+- illegal Repair status transitions are rejected;
 - direct Repair creation cannot leave a Repair without its initial event;
 - direct authenticated status/identity edits and Status Event insertion fail;
 - unrelated detail edits preserve removed historical Repair Service Modes;

@@ -161,12 +161,20 @@ Provider Service Mode replacement.
 Resolve a public Tracking Code into a restricted customer-safe view.
 
 ```ts
-lookupRepairByTrackingCode(code): PublicRepairView
+lookupRepairByTrackingCode(code): PublicRepairView | null
 ```
 
-`PublicRepairView` must never be a raw `repairs` row.
+The Module normalizes and validates the public credential, invokes one bounded
+database projection, fails closed if that projection drifts, and composes
+customer-facing device/status/Service Mode wording. Invalid and unknown codes
+both return `null`.
 
-It excludes Provider-private information, Internal Notes, contact information not intended for display, and internal identifiers.
+`PublicRepairView` is never a raw `repairs` row. It contains Provider display
+name, one safe device summary, current status presentation, selected Service
+Mode, computed last activity time, READY handover guidance, and at most 25
+message/timestamp-only Customer Updates. It excludes contact information,
+customer identity, Internal Notes, Diagnosis, technical identifiers, ticket/
+tracking credentials, database/auth ids, Update authors, and audit history.
 
 ## 6. Analytics / Pilot Metrics Module
 

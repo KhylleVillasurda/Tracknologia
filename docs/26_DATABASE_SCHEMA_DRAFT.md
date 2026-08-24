@@ -189,3 +189,12 @@ for atomic creation/history and locked lifecycle/history consistency. The
 `enforce_repair_service_mode_update` trigger repeats current-mode support only
 when `service_mode` actually changes and serializes that check against Provider
 configuration replacement.
+
+Feature 05 implements public read access only through
+`lookup_public_repair(text)`. The `SECURITY DEFINER` function bounds and
+normalizes input, uses the existing unique Tracking Code index, returns an
+explicit eight-column projection, and nests at most 25 Customer Update
+message/timestamp pairs. It does not depend on `accepting_requests`, because
+closing intake must not hide an existing Repair. Execute is granted to
+`anon`, `authenticated`, and `service_role` only after revoking the default
+`PUBLIC` grant; anonymous raw table privileges remain denied.
