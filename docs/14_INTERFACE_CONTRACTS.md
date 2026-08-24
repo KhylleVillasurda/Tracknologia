@@ -185,6 +185,10 @@ Guarantees:
 - invalid/cross-Provider identifiers reveal only not-found behavior;
 - list pages contain at most 25 summaries with deterministic ordering;
 - search/filter/page options validate before persistence;
+- search accepts bounded human punctuation and is quoted/escaped before raw
+  PostgREST OR composition;
+- the `WAITING` aggregate returns only `WAITING_FOR_PARTS` and
+  `AWAITING_APPROVAL` Repairs;
 - detail composes Status Events and Customer Updates without exposing raw
   persistence rows.
 
@@ -198,9 +202,17 @@ Guarantees:
 
 - Provider owns Repair;
 - authoritative snapshot input uses durable creation bounds;
+- omitted Service Mode input preserves the recorded snapshot, explicit `null`
+  clears it, and a changed non-null mode must be currently configured;
+- changed modes are rechecked at write time under a shared Provider-row lock,
+  serializing with Owner Service Mode replacement;
+- later removal of a configured mode does not invalidate or erase historical
+  Repair data;
 - identity, ownership, source, ticket/tracking, lifecycle, actor, and timestamp
   columns are not client-editable;
-- RLS and column-level grants repeat the allow-list in PostgreSQL.
+- RLS and column-level grants repeat the allow-list in PostgreSQL;
+- unsupported write-time changes return `UNSUPPORTED_SERVICE_MODE` without
+  changing the durable snapshot.
 
 ## Repairs — changeRepairStatus
 

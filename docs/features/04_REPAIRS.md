@@ -202,6 +202,8 @@ Review device/problem/intake
     ↓
 Maintain Diagnosis / Internal Notes
     ↓
+Preserve or intentionally change the recorded Service Mode
+    ↓
 Add Customer Update when useful
     ↓
 Change status only when operational state meaningfully changes
@@ -269,7 +271,10 @@ All protected reads/mutations require `ProviderContext` and ownership checks.
 
 ### Providers
 
-Every Repair belongs to one Provider. Provider Service Modes may influence selected service arrangement and READY wording.
+Every Repair belongs to one Provider. Current Provider Service Modes constrain
+new Service Mode selections and may influence READY wording. Once recorded, a
+Repair's Service Mode is a historical snapshot and may remain even if the
+Provider later stops offering that mode.
 
 ### Repair Requests
 
@@ -298,6 +303,9 @@ Important events include Repair created, origin, status changed, and completed.
 11. `current_status` and the Status Event must not contradict each other after a successful mutation.
 12. Customer Updates do not imply status changes.
 13. `WAITING_FOR_PARTS` and `AWAITING_APPROVAL` are optional branches, not mandatory stages.
+14. An unrelated detail edit preserves the Repair's recorded Service Mode.
+15. An intentional non-null Service Mode change must still be configured when
+    the write commits; clearing the mode remains allowed.
 
 ## Persistence/transaction expectations
 
@@ -314,6 +322,11 @@ completed_at when applicable
 as one logical operation. Do not report a transition as successful if durable state is inconsistent.
 
 Request acceptance should also avoid partial success between the source Request and created Repair.
+
+Intentional Repair Service Mode changes serialize against Provider Service
+Mode replacement through the shared Provider-row lock. This is a write-time
+integrity guarantee, not a permanent foreign key: later configuration changes
+must not invalidate historical Repair snapshots.
 
 ## Security expectations
 
@@ -332,6 +345,15 @@ Valid even if no Repair Request ever existed.
 ### Waiting state
 
 A Repair may return from a waiting state to `IN_PROGRESS`; waiting is not completion.
+The dashboard's aggregate Waiting count links to a Repair list filter containing
+both `WAITING_FOR_PARTS` and `AWAITING_APPROVAL`.
+
+### Historical Service Mode
+
+If a Provider removes a mode after a Repair recorded it, the edit form keeps
+that recorded mode visible and selected with a "no longer offered" label.
+Leaving it unchanged preserves the snapshot. Selecting no mode intentionally
+clears it; selecting another non-null mode requires current Provider support.
 
 ### Attempted invalid transition
 
@@ -362,6 +384,9 @@ Test:
 - Internal Notes not present in public projection;
 - Provider isolation;
 - list/search/filter behavior;
+- historical Service Mode preservation and explicit clearing;
+- direct unsupported Service Mode update denial;
+- Service Mode edit/replacement serialization;
 - one Request cannot create two Repairs.
 
 ## Implemented baseline
@@ -376,16 +401,22 @@ Feature 04 is implemented through:
 - `20260824023000_complete_repairs.sql` for append-only `repair_updates`,
   restricted detail-edit privileges, atomic direct creation, and serialized
   lifecycle transitions;
+- `20260824024000_harden_repair_service_mode_updates.sql` for write-time
+  validation and Provider-serialized Repair Service Mode changes;
 - real PostgreSQL integration coverage for direct creation, initial history,
   immutable fields, cross-Provider isolation, Customer Update separation,
-  legal/illegal transitions, completion, and concurrent transition races.
+  legal/illegal transitions, completion, historical Service Modes, direct mode
+  bypass denial, and concurrent transition/configuration races.
 
 Repair pages use 25-row look-ahead pagination ordered by
-`updated_at DESC, id DESC`. Search is bounded and restricted to characters that
-cannot alter PostgREST filter grammar. Direct creation and status transitions
-use narrow database transactions because they require multiple durable writes;
-single-statement detail edits and Customer Update insertion use ordinary
-persistence with column grants, constraints, and RLS.
+`updated_at DESC, id DESC`. Search is bounded, accepts ordinary human
+punctuation, and quotes/escapes values before composing raw PostgREST OR
+filters. The `WAITING` list filter aggregates both waiting states. Direct
+creation and status transitions use narrow database transactions because they
+require multiple durable writes. Detail edits use ordinary persistence with
+column grants and RLS, plus a narrow trigger that validates and serializes only
+actual Repair Service Mode changes. Customer Update insertion remains an
+ordinary constrained append.
 
 Public Tracking remains Feature 05. Feature 04 exposes Tracking Codes only to
 the owning Provider and grants no anonymous access to raw Repair or Customer

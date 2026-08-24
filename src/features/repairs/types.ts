@@ -9,6 +9,8 @@ export type RepairStatus =
   | "READY"
   | "COMPLETED";
 
+export type RepairListStatus = RepairStatus | "WAITING";
+
 const ALLOWED_STATUS_TRANSITIONS: Record<
   RepairStatus,
   readonly RepairStatus[]
@@ -48,7 +50,13 @@ export interface RepairSnapshotInput {
 
 export type DirectRepairInput = RepairSnapshotInput;
 export type RequestOriginRepairInput = RepairSnapshotInput;
-export type UpdateRepairDetailsInput = RepairSnapshotInput;
+export interface UpdateRepairDetailsInput extends Omit<
+  RepairSnapshotInput,
+  "serviceMode"
+> {
+  /** undefined preserves the snapshot; null intentionally clears it. */
+  serviceMode?: ServiceMode | null;
+}
 
 export interface RepairResult {
   repairId: string;
@@ -109,7 +117,7 @@ export interface RepairDetail extends RepairSummary {
 }
 
 export interface RepairListOptions {
-  status?: RepairStatus;
+  status?: RepairListStatus;
   query?: string;
   page?: number;
 }

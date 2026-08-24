@@ -48,10 +48,12 @@ Exact Supabase Auth callbacks may add framework-specific routes as implementatio
 - `/dashboard/settings`
 
 `/dashboard/repairs` is implemented as a Server Component using awaited
-`searchParams`. It supports bounded ticket/customer/device search, status
-filters, and 25-row Previous/Next pagination ordered by
-`updated_at DESC, id DESC`. Invalid query values safely fall back rather than
-reaching persistence.
+`searchParams`. It supports bounded, punctuation-safe ticket/customer/device
+search, actual-status filters, the `WAITING` aggregate, and 25-row
+Previous/Next pagination ordered by `updated_at DESC, id DESC`. Search values
+are quoted/escaped before raw PostgREST OR construction. Invalid search input
+is preserved and shown with an inline validation error rather than silently
+discarded; invalid values do not reach persistence.
 
 `/dashboard/repairs/new` loads the authenticated Provider's configured Service
 Modes and adapts a sectioned direct-intake form to `Repairs.createRepair`.
@@ -63,6 +65,11 @@ authoritative snapshot, private Provider information, Customer Updates,
 Status Events, valid lifecycle actions, and edit/update forms. Invalid and
 cross-Provider IDs share not-found behavior. Tracking Code display is private
 Provider functionality here; public lookup remains Feature 05.
+
+Repair detail editing preserves an omitted recorded Service Mode, treats the
+explicit blank choice as an intentional clear, and renders a removed historical
+mode as "recorded on this Repair; no longer offered." Changed non-null modes are
+validated again at database write time.
 
 `/dashboard/requests` implements Provider-scoped summary cards with 25-row
 pagination. It accepts `status` and `page` query parameters, including

@@ -223,6 +223,14 @@ created Repair belong to the same Provider. Feature 04 creates
 `PROVIDER_CREATED` Repairs directly while preserving the same downstream
 lifecycle used by `CUSTOMER_REQUEST` Repairs.
 
+`service_mode` and `service_mode_details` are Repair-owned historical snapshot
+fields. A configured mode may be removed later without invalidating existing
+Repairs. On an actual `service_mode` change, a database trigger locks the
+Provider row `FOR SHARE` and rejects a new non-null mode that is not currently
+present in `provider_service_modes`. This serializes with Owner replacement,
+which locks the same Provider row `FOR UPDATE`, without adding a permanent
+foreign key to mutable configuration.
+
 Implemented identifiers use:
 
 ```text

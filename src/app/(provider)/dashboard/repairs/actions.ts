@@ -72,6 +72,21 @@ function repairInput(formData: FormData) {
   };
 }
 
+function repairUpdateInput(formData: FormData) {
+  const input = repairInput(formData);
+  const serviceMode = formData.get("serviceMode");
+
+  return {
+    ...input,
+    serviceMode:
+      serviceMode === null
+        ? undefined
+        : serviceMode.toString() === ""
+          ? null
+          : serviceMode.toString(),
+  };
+}
+
 function repairErrorMessage(error: unknown, fallback: string) {
   return error instanceof RepairError ? error.message : fallback;
 }
@@ -118,7 +133,9 @@ export async function updateRepairDetailsAction(
   formData: FormData,
 ): Promise<RepairActionState> {
   const repairId = formData.get("repairId")?.toString() ?? "";
-  const parsed = updateRepairDetailsSchema.safeParse(repairInput(formData));
+  const parsed = updateRepairDetailsSchema.safeParse(
+    repairUpdateInput(formData),
+  );
   if (!parsed.success) {
     return {
       error: parsed.error.issues[0]?.message ?? "Please review the Repair",

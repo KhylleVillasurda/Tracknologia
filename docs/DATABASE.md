@@ -153,6 +153,12 @@ The authoritative repair record containing customer and device snapshots.
 - authenticated detail edits are restricted to explicit customer/device and
   Provider-authored columns; identity, origin, lifecycle, identifiers,
   ownership, and timestamps are not client-editable.
+- `service_mode` remains a historical Repair snapshot when Provider
+  configuration changes. An actual mode update invokes
+  `enforce_repair_service_mode_update`, which locks the Provider row `FOR SHARE`
+  and rejects an unsupported new non-null value. This serializes with
+  `set_provider_service_modes` without adding a foreign key to mutable
+  configuration.
 
 ### 9. `repair_status_events`
 
@@ -250,6 +256,8 @@ npx supabase db push
   application validation responsibilities.
 - Database triggers maintain `updated_at` for `providers`,
   `provider_user_profiles`, and `repairs`.
+- The Repair Service Mode trigger is not a business-service surface: it repeats
+  the Module invariant at write time for direct-client and concurrency safety.
 
 ### 5. Supabase CLI & State Hygiene
 

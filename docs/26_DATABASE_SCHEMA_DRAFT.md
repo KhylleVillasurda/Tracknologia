@@ -136,6 +136,16 @@ authenticated author default, cascading Repair foreign key, and stable history
 index. Provider members may append/read their Provider's updates but cannot
 edit/delete them; anonymous roles have no raw access.
 
+### Repair Service Mode snapshot integrity
+
+`repairs.service_mode` is a historical snapshot, not a permanent foreign key to
+mutable `provider_service_modes`. A `BEFORE UPDATE OF service_mode` trigger
+returns immediately for unchanged values. For an actual change it locks the
+Provider row `FOR SHARE`, allows `NULL`, and rejects a non-null mode absent from
+current configuration. Owner Service Mode replacement uses `FOR UPDATE` on the
+same row, so concurrent edit/replacement operations serialize without making
+later configuration removal invalidate historical Repairs.
+
 ## Why arrays/text columns are acceptable here
 
 For MVP, `providers.supported_devices` may be a text array because device-category support is profile metadata without an independent lifecycle.
@@ -175,7 +185,10 @@ limited to explicitly granted snapshot columns under an UPDATE policy; direct
 Repair creation, lifecycle columns, Status Events, identifiers, ownership, and
 audit fields remain protected. `create_provider_repair` and
 `change_repair_status` provide the two narrow Feature 04 transactions required
-for atomic creation/history and locked lifecycle/history consistency.
+for atomic creation/history and locked lifecycle/history consistency. The
+`enforce_repair_service_mode_update` trigger repeats current-mode support only
+when `service_mode` actually changes and serializes that check against Provider
+configuration replacement.
 
 Feature 05 implements public read access only through
 `lookup_public_repair(text)`. The `SECURITY DEFINER` function bounds and

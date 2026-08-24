@@ -6,7 +6,11 @@ vi.mock("server-only", () => ({}));
 
 import { hashInvitationToken } from "@/features/providers/persistence";
 import { listRepairRequests } from "@/features/repair-requests";
-import { listRepairs } from "@/features/repairs";
+import {
+  getRepair,
+  listRepairs,
+  updateRepairDetails,
+} from "@/features/repairs";
 import {
   cleanupFixture,
   assertSupabaseMutation,
@@ -2250,6 +2254,200 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     }
   });
 
+  it("preserves a historical Service Mode during an unrelated detail edit", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("historical-mode-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const provider = await createProviderAs(auth.client);
+
+    try {
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "HOME_SERVICE" }],
+        }),
+        "configure historical Repair Service Mode",
+      );
+      const created = assertSupabaseSuccess(
+        await auth.client.rpc(
+          "create_provider_repair",
+          directRepairInput({
+            p_service_mode: "HOME_SERVICE",
+            p_service_mode_details: "Customer home visit",
+          }),
+        ),
+        "create Repair with historical Service Mode",
+      );
+      const receipt = Array.isArray(created.data)
+        ? created.data[0]
+        : created.data;
+
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [],
+        }),
+        "remove historical Repair Service Mode from Provider settings",
+      );
+
+      const updated = await updateRepairDetails(
+        receipt.repair_id,
+        {
+          customerName: "Direct Customer",
+          customerPhone: "+63 917 555 0111",
+          customerEmail: "direct@example.test",
+          deviceType: "Laptop",
+          brand: "Lenovo",
+          model: "IdeaPad 3",
+          serialNumber: "DIRECT-SERIAL-123",
+          colorVariant: "Gray",
+          deviceSpecs: "16 GB RAM",
+          physicalCondition: "Light scratches",
+          accessoriesReceived: "Charger",
+          reportedProblem: "Battery does not charge",
+          initialObservation: "Charging port is loose",
+          diagnosis: "Diagnosis updated without changing the arrangement",
+          internalNotes: "Private direct-intake note",
+          serviceModeDetails: "Customer home visit",
+        },
+        auth.client,
+      );
+
+      expect(updated).toMatchObject({
+        diagnosis: "Diagnosis updated without changing the arrangement",
+        serviceMode: "HOME_SERVICE",
+        serviceModeDetails: "Customer home visit",
+      });
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("rejects a direct unsupported Repair Service Mode replacement", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("unsupported-mode-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const provider = await createProviderAs(auth.client);
+
+    try {
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "configure one supported Repair Service Mode",
+      );
+      const created = assertSupabaseSuccess(
+        await auth.client.rpc("create_provider_repair", directRepairInput()),
+        "create Repair before unsupported direct update",
+      );
+      const receipt = Array.isArray(created.data)
+        ? created.data[0]
+        : created.data;
+
+      const unsupported = await auth.client
+        .from("repairs")
+        .update({ service_mode: "HOME_SERVICE" })
+        .eq("id", receipt.repair_id)
+        .select("service_mode");
+      expect(unsupported.error?.message).toMatch(/UNSUPPORTED_SERVICE_MODE/);
+
+      const durable = await getRepair(receipt.repair_id, auth.client);
+      expect(durable?.serviceMode).toBe("DROP_OFF");
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("serializes Repair Service Mode edits with Provider mode replacement", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("repair-mode-race-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const editClient = createAuthenticatedClient(auth.session);
+    const settingsClient = createAuthenticatedClient(auth.session);
+    const provider = await createProviderAs(auth.client);
+
+    try {
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }, { mode: "HOME_SERVICE" }],
+        }),
+        "configure Service Modes before Repair edit race",
+      );
+      const created = assertSupabaseSuccess(
+        await auth.client.rpc("create_provider_repair", directRepairInput()),
+        "create Repair before Service Mode edit race",
+      );
+      const receipt = Array.isArray(created.data)
+        ? created.data[0]
+        : created.data;
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        assertSupabaseSuccess(
+          await auth.client.rpc("set_provider_service_modes", {
+            p_service_modes: [{ mode: "DROP_OFF" }, { mode: "HOME_SERVICE" }],
+          }),
+          `restore Service Modes before Repair edit race ${attempt + 1}`,
+        );
+        assertSupabaseMutation(
+          await auth.client
+            .from("repairs")
+            .update({ service_mode: "DROP_OFF" })
+            .eq("id", receipt.repair_id)
+            .select("service_mode"),
+          `restore Repair Service Mode before race ${attempt + 1}`,
+        );
+
+        const [edit, replacement] = await Promise.all([
+          editClient
+            .from("repairs")
+            .update({ service_mode: "HOME_SERVICE" })
+            .eq("id", receipt.repair_id)
+            .select("service_mode"),
+          settingsClient.rpc("set_provider_service_modes", {
+            p_service_modes: [{ mode: "DROP_OFF" }],
+          }),
+        ]);
+
+        expect(replacement.error).toBeNull();
+        const durable = await getRepair(receipt.repair_id, auth.client);
+        if (edit.error) {
+          expect(edit.error.message).toMatch(/UNSUPPORTED_SERVICE_MODE/);
+          expect(durable?.serviceMode).toBe("DROP_OFF");
+        } else {
+          expect(edit.data?.[0]?.service_mode).toBe("HOME_SERVICE");
+          expect(durable?.serviceMode).toBe("HOME_SERVICE");
+        }
+
+        const configured = assertSupabaseSuccess(
+          await auth.client
+            .from("provider_service_modes")
+            .select("mode")
+            .eq("provider_id", provider.providerId),
+          `read Provider Service Modes after Repair edit race ${attempt + 1}`,
+        );
+        expect(configured.data).toEqual([{ mode: "DROP_OFF" }]);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
   it("Shop Staff can perform Provider Repair operations without Owner settings authority", async () => {
     const owner = await createTestUser(
       adminClient,
@@ -2577,6 +2775,19 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
               device_type: "NeedleLaptop",
               current_status: "IN_PROGRESS",
             }),
+            repairRow(providerA.providerId, ownerA.user.id, 62, {
+              customer_name: "O'Connor",
+              device_type: "A/B",
+              brand: "AT&T",
+              model: "Galaxy S23+",
+              current_status: "IN_PROGRESS",
+            }),
+            repairRow(providerA.providerId, ownerA.user.id, 63, {
+              current_status: "WAITING_FOR_PARTS",
+            }),
+            repairRow(providerA.providerId, ownerA.user.id, 64, {
+              current_status: "AWAITING_APPROVAL",
+            }),
             repairRow(providerB.providerId, ownerB.user.id, 999),
           ])
           .select("id"),
@@ -2624,6 +2835,28 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         customerName: "Needle Customer",
         currentStatus: "IN_PROGRESS",
       });
+
+      for (const query of ["O'Connor", "Galaxy S23+", "AT&T", "A/B"]) {
+        const punctuationSearch = await listRepairs({ query }, authA.client);
+        expect(punctuationSearch.items).toHaveLength(1);
+        expect(punctuationSearch.items[0]).toMatchObject({
+          customerName: "O'Connor",
+          deviceType: "A/B",
+          brand: "AT&T",
+          model: "Galaxy S23+",
+        });
+      }
+
+      const filterGrammarSearch = await listRepairs(
+        { query: "Needle),current_status.eq.READY" },
+        authA.client,
+      );
+      expect(filterGrammarSearch.items).toEqual([]);
+
+      const waiting = await listRepairs({ status: "WAITING" }, authA.client);
+      expect(
+        waiting.items.map((repair) => repair.currentStatus).sort(),
+      ).toEqual(["AWAITING_APPROVAL", "WAITING_FOR_PARTS"]);
 
       const providerBPage = await listRepairs({}, authB.client);
       expect(providerBPage.items).toHaveLength(1);
