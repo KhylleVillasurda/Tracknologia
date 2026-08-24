@@ -44,3 +44,13 @@ Before merging a substantial change also run:
 docker compose run --rm web npm run lint
 docker compose run --rm web npm run build
 ```
+
+## Real PostgreSQL / RLS integration tests
+
+Run `supabase db reset` before `pnpm test:db` when working against a local
+Supabase stack.
+
+In CI, the database job pins the Supabase CLI, overrides only the generated
+database port to `55432` to avoid runner collisions, retries startup once after
+cleaning stale local Supabase state, and always stops the stack. This does not
+change the normal local Supabase ports.

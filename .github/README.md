@@ -59,25 +59,34 @@ Direct feature-to-master pull requests are rejected by `branch-policy.yml`.
 
 ### `ci.yml`
 
-Runs on pull requests targeting `staging` or `master`, and after pushes to
-those integration/release branches.
+Runs on pull requests and pushes targeting `feature/**`, `staging`, and
+`master` branches.
 
 Checks:
 
-- dependency installation with `npm ci`
+- dependency installation with frozen pnpm resolution
+- formatting
 - lint
 - TypeScript type checking
 - Vitest unit/module tests
+- real PostgreSQL/RLS integration tests through local Supabase
 - production Next.js build
+
+The database job pins its Supabase CLI version, changes only the generated CI
+database port from `54322` to `55432`, retries startup once after cleaning stale
+local Supabase state, and always tears the stack down. Local development keeps
+the normal Supabase configuration.
 
 Expected `package.json` scripts:
 
 ```json
 {
   "scripts": {
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "test:run": "vitest run",
+    "format:check": "prettier --check .",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test:run": "vitest run --passWithNoTests src tests/contracts",
+    "test:db": "vitest run tests/integration/db.test.ts",
     "build": "next build"
   }
 }
