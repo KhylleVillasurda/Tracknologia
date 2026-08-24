@@ -46,30 +46,34 @@ Provider Users may preview the public view, but the Interface is designed for un
 ## Conceptual Interface
 
 ```ts
-lookupRepairByTrackingCode(code): PublicRepairView | NotFound
+lookupRepairByTrackingCode(code): PublicRepairView | null
 ```
 
 Keep the public Interface narrow.
 
 ## PublicRepairView
 
-May include:
+The implemented view includes only:
 
 - Provider display name;
-- safe device summary;
-- current Repair Status;
-- Customer Updates;
-- last-updated timestamp;
-- selected Service Mode where useful;
-- customer-safe handover wording when `READY`.
+- device type plus optional brand/model composed as one safe summary;
+- current Repair Status plus customer-facing label/description;
+- at most the latest 25 Customer Updates, newest first;
+- last-updated timestamp across Repair and Customer Update activity;
+- selected Service Mode without free-form arrangement details;
+- Provider-neutral handover wording when `READY`.
 
 Must not include:
 
 - customer phone/email;
+- customer name;
 - Internal Notes;
+- Diagnosis, serial number, or detailed technical snapshot;
 - raw internal ids;
+- Ticket Number or echoed Tracking Code;
 - authenticated user ids;
 - Provider-private fields;
+- Customer Update authors and Status Event history;
 - unrelated customer information;
 - unrestricted internal technical notes.
 
@@ -78,7 +82,7 @@ Must not include:
 ```text
 Customer opens /track
         ↓
-Enter Tracking Code
+Enter Tracking Code in POST-backed form
         ↓
 Validate input format
         ↓
@@ -118,6 +122,10 @@ Emphasize:
 
 Use a neutral result such as invalid/not found without exposing internal lookup details.
 
+The implemented route uses a thin Server Action and `useActionState`. The
+Tracking Code is submitted in a POST body rather than placed in URL query
+parameters or browser history.
+
 ## Relationships with other features
 
 ### Repairs
@@ -150,7 +158,11 @@ Do not expose sequential ticket numbers as the only public lookup credential.
 
 ### Rate limiting
 
-Apply reasonable rate limiting to public lookup when infrastructure supports it. Tune based on real usage/abuse rather than making the normal customer experience cumbersome.
+Apply reasonable rate limiting to public lookup when infrastructure supports
+it. Controls must protect the directly callable Supabase RPC as well as the
+Next.js page; an application-process memory limiter would not satisfy this
+requirement. Broad production exposure remains gated on a durable gateway or
+equivalent control.
 
 ### Data minimization
 
@@ -196,9 +208,32 @@ Test:
 - Internal Notes are excluded;
 - internal ids/auth ids are excluded;
 - Customer Updates are included;
+- only the latest 25 Customer Updates are returned in newest-first order;
 - status labels/semantics are correct;
 - Provider-neutral READY presentation;
+- direct and Request-origin Repairs share the same public view;
+- Tracking continues after a Provider stops accepting new Requests;
+- anonymous raw Repair/Customer Update access remains denied;
 - rate-limit behavior where implemented.
+
+## Implemented baseline
+
+Feature 05 is implemented through:
+
+- `src/features/tracking/` for input normalization, strict projection
+  validation, customer-safe status/handover presentation, and the single
+  `lookupRepairByTrackingCode` Interface;
+- `/track` for the responsive accountless POST-backed lookup experience;
+- `20260824030000_add_public_tracking_lookup.sql` for the bounded,
+  allow-listed `lookup_public_repair` function;
+- feature-local tests for normalization, projection fail-closed behavior,
+  every status meaning, update bounds, and READY wording;
+- real PostgreSQL integration coverage for anonymous lookup, both Repair
+  origins, closed-Provider continuity, raw-table denial, and field exclusion.
+
+The lookup function returns only named public columns and nested Update
+message/timestamp pairs. Anonymous callers retain no direct table access.
+Tracking analytics remains Feature 06 and is not an availability dependency.
 
 ## Definition of done
 

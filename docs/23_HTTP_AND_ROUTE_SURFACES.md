@@ -8,6 +8,18 @@ The MVP does not require a dedicated REST backend. Next.js routes render the web
 
 Customer enters Tracking Code and receives a `PublicRepairView`.
 
+Implemented as a Server Component plus route-local Client form and thin Server
+Action. The form uses POST so the Tracking credential is not placed in URL
+query parameters or browser history. The action passes untrusted FormData to
+`Tracking.lookupRepairByTrackingCode`; malformed and unknown values share one
+neutral not-found result, while infrastructure failure becomes a generic
+temporary-unavailable state.
+
+The rendered result contains Provider display name, safe device summary,
+customer-facing status meaning, Service Mode label, READY handover guidance,
+computed last activity time, and at most 25 message/timestamp-only Customer
+Updates. It never renders the underlying Repair representation.
+
 ### `/p/[providerSlug]/request`
 
 Customer submits a Repair Request to one specific Provider. The page presents Provider identity and supported Service Modes.
@@ -79,6 +91,10 @@ Good candidates:
 - change Repair status;
 - add Customer Update;
 - complete Repair.
+
+Feature 05 uses public `trackRepairAction(state, formData)` as a read adapter.
+It accepts no Provider/Repair id, forwards no client authority, and returns only
+the Tracking Module's restricted serializable view.
 
 Feature 04 actions are:
 

@@ -272,6 +272,29 @@ scoped RLS, and `(repair_id, created_at DESC, id DESC)` index. Provider members
 may append and read updates for their own Repairs, but cannot edit or delete
 them. Anonymous roles receive no raw table access.
 
+## Public Tracking read model
+
+`PublicRepairView` is an application read model backed by the
+`lookup_public_repair(text)` database function, not another domain table and
+not a raw SQL view over `repairs`.
+
+Its durable projection is restricted to:
+
+```text
+Provider display name
+device type + optional brand/model
+current Repair Status
+selected Service Mode
+Repair/Customer-Update last activity time
+latest 25 Customer Update message/timestamp pairs
+```
+
+The existing globally unique `repairs.tracking_code` index supplies the lookup
+path. Provider request availability does not affect tracking of an existing
+Repair. Customer identity/contact, technical/private fields, Ticket Number,
+internal identifiers, credentials, Update authors, and Status Event history do
+not enter the read model.
+
 ## Why no customers table yet
 
 Customer identity is not currently an account or reusable profile. Contact information is stored as a snapshot on Request/Repair.
@@ -299,7 +322,7 @@ Normalize Device only if reusable device history becomes a validated requirement
 - index `repairs(provider_id, current_status, updated_at)`
 - index `repairs(provider_id, created_at)`
 - index `repair_status_events(repair_id, created_at)`
-- index `repair_updates(repair_id, created_at)`
+- index `repair_updates(repair_id, created_at DESC, id DESC)`
 
 ## RLS ownership path
 

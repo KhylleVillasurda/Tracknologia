@@ -88,9 +88,19 @@ Feature-local validation and lifecycle coverage lives in
 
 ### Tracking
 
-- valid Tracking Code returns `PublicRepairView`;
-- invalid code reveals no internal details;
+- valid lowercase/whitespace-padded Tracking Code normalizes and returns
+  `PublicRepairView`;
+- malformed and unknown codes both return `null`/neutral not-found behavior;
+- strict projection parsing rejects unexpected fields or more than 25 Updates;
+- all five Repair statuses receive stable customer-facing semantics;
+- READY wording remains Provider-neutral across every Service Mode;
 - raw Repair/private fields cannot leak into output.
+
+Feature-local coverage lives in `src/features/tracking/tracking.test.ts` and
+runs with `pnpm test:run`. Real function grants, raw-table denial, projection
+shape, both Repair origins, closed-Provider continuity, Update ordering/cap,
+and activity timestamps extend `tests/integration/db.test.ts` and require
+`20260824030000_add_public_tracking_lookup.sql`.
 
 ## Contract tests
 
@@ -139,6 +149,12 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - completion timestamp consistency and reopening denial;
 - same-Repair transition concurrency under row locking;
 - append-only Customer Update permissions and status independence.
+- anonymous public Tracking RPC returns the exact allow-listed projection;
+- malformed/unknown Tracking Codes reveal the same empty database result;
+- public Tracking returns the latest 25 Update message/timestamp pairs only;
+- direct and Request-origin Repairs share the same public behavior;
+- existing Repair Tracking survives Provider Request closure;
+- anonymous raw Repair, Update, and Status Event reads remain denied.
 
 Any security-sensitive database change, including schema, RLS, policy, constraint, trigger, or RPC changes, requires the real PostgreSQL / RLS integration suite before completion.
 

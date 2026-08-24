@@ -176,3 +176,12 @@ Repair creation, lifecycle columns, Status Events, identifiers, ownership, and
 audit fields remain protected. `create_provider_repair` and
 `change_repair_status` provide the two narrow Feature 04 transactions required
 for atomic creation/history and locked lifecycle/history consistency.
+
+Feature 05 implements public read access only through
+`lookup_public_repair(text)`. The `SECURITY DEFINER` function bounds and
+normalizes input, uses the existing unique Tracking Code index, returns an
+explicit eight-column projection, and nests at most 25 Customer Update
+message/timestamp pairs. It does not depend on `accepting_requests`, because
+closing intake must not hide an existing Repair. Execute is granted to
+`anon`, `authenticated`, and `service_role` only after revoking the default
+`PUBLIC` grant; anonymous raw table privileges remain denied.

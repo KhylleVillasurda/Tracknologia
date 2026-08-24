@@ -136,6 +136,8 @@ Do not put the full Tracknologia authorization model in Proxy.
 Use `server-only` for sensitive persistence/auth implementation modules where useful to prevent accidental client imports:
 
 - `src/features/repairs/persistence.ts`
+- `src/features/tracking/persistence.ts`
+- `src/features/tracking/queries.ts`
 - `src/features/repair-requests/persistence.ts`
 - `src/features/repair-requests/commands.ts`
 - `src/features/repair-requests/queries.ts`
@@ -197,17 +199,34 @@ one initial Status Event, and one terminal Request state.
 
 Tracking Codes must be difficult to enumerate. Do not use sequential Ticket Numbers as the public credential.
 
-Public lookup returns a dedicated `PublicRepairView`, never a complete Repair row.
+Public lookup returns a dedicated `PublicRepairView`, never a complete Repair
+row. `lookup_public_repair(text)` is the only anonymous database lookup surface.
+It is `SECURITY DEFINER`, fixes `search_path`, rejects oversized/malformed input,
+uses an explicit return-column allow-list, and caps nested Customer Updates at
+25 message/timestamp pairs. Anonymous roles retain no direct `SELECT` privilege
+on `providers`, `repairs`, `repair_updates`, or `repair_status_events`.
+
+The Tracking Module validates the returned row with a strict Zod schema and
+constructs the public object field-by-field. An unexpected database field or
+oversized update list fails closed. Invalid and unknown codes share one neutral
+not-found response. The Next.js form submits by POST so the credential is not
+placed in a query string or browser history.
 
 Never expose:
 
 - Internal Notes;
-- customer contact fields unless explicitly required in the view;
+- customer identity/contact information;
+- Diagnosis, serial number, detailed specifications, and free-form Service Mode details;
+- Ticket Number or an echoed Tracking Code;
 - raw internal database ids;
+- authentication ids, Update authors, and Status Event history;
 - Provider-private information;
 - privileged audit data.
 
-Apply rate limiting to public lookup before real public exposure.
+Apply durable rate limiting before broad public exposure. It must protect the
+direct Supabase RPC as well as the Next.js page; a process-memory limiter at the
+web route alone is insufficient. Analytics remains optional and must not make
+lookup availability depend on Feature 06.
 
 ## Secrets
 
@@ -239,6 +258,10 @@ Browser-safe public/publishable configuration is distinct from privileged server
 - valid Tracking Code returns only public projection.
 - invalid Tracking Code reveals minimal information.
 - Internal Notes never enter public output.
+- anonymous Tracking cannot read underlying Repair/Update rows directly;
+- Tracking returns at most 25 message/timestamp-only Customer Updates;
+- direct and Request-origin Repairs expose the same projection;
+- disabling new Repair Requests does not disable an existing Repair's Tracking;
 - repeated Request acceptance cannot create duplicate Repairs.
 - concurrent accept/decline decisions serialize to one terminal outcome.
 - anonymous callers cannot read Request/contact data or create Repairs directly.

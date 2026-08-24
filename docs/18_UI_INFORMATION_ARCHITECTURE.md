@@ -43,6 +43,12 @@ Public view should emphasize:
 - Last Updated
 - Service-mode-appropriate handover wording when READY
 
+The implemented `/track` surface uses a narrow mobile-first column and a
+POST-backed form. Success keeps status visible by text as well as color,
+highlights the latest Customer Update, collapses earlier Updates, and labels
+Service Mode without exposing free-form arrangement details. Malformed and
+unknown codes share the same neutral result.
+
 ## Authenticated Provider area
 
 ### Dashboard

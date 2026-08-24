@@ -240,24 +240,41 @@ create Status Events.
 ## Tracking — lookupRepairByTrackingCode
 
 ```text
-lookupRepairByTrackingCode(code) -> PublicRepairView | NotFound
+lookupRepairByTrackingCode(code) -> PublicRepairView | null
 ```
 
-`PublicRepairView` may include:
+Guarantees:
+
+- input is trimmed, uppercased, and accepted only as
+  `TRK-[A-F0-9]{24}`;
+- malformed and unknown values both return `null` without revealing why;
+- database lookup uses the existing globally unique Tracking Code index;
+- Provider request availability does not hide an existing Repair;
+- at most 25 Customer Updates are returned newest first;
+- last activity is the later of Repair update time and newest public Update;
+- persistence projection drift fails closed instead of adding fields to public
+  output.
+
+`PublicRepairView` contains only:
 
 - Provider display name;
-- safe device summary;
-- current Repair Status;
-- customer-safe updates;
-- last-updated timestamp;
-- selected Service Mode where useful.
+- safe device summary composed from device type and optional brand/model;
+- current Repair Status plus customer-facing label/description;
+- Customer Update message/timestamp pairs;
+- computed last-updated timestamp;
+- selected Service Mode label;
+- Provider-neutral READY handover guidance.
 
 It must not contain:
 
-- customer phone/email;
+- customer name/phone/email;
 - Internal Notes;
-- raw internal ids;
-- Provider-private fields;
-- unrestricted Diagnosis/private technical notes.
+- Diagnosis, serial number, or detailed technical snapshot;
+- raw internal/auth ids and Update authors;
+- Ticket Number, echoed Tracking Code, or Request origin;
+- Status Event history;
+- Provider-private fields.
 
-Unknown/invalid codes reveal minimal information and are subject to rate limits.
+Unexpected persistence failures are surfaced to the Next.js adapter as an
+unavailable outcome without exposing database details. Durable rate limiting
+must cover the public RPC itself before broad production exposure.
