@@ -5,6 +5,7 @@ import { repairStatusEnum } from "@/features/repairs";
 
 export const trackingCodeSchema = z
   .string()
+  .max(128)
   .trim()
   .toUpperCase()
   .regex(/^TRK-[A-F0-9]{24}$/);

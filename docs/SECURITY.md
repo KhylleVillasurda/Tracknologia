@@ -135,9 +135,11 @@ function but no direct read privilege on Provider, Repair, Customer Update, or
 Status Event tables. Disabling new Requests does not hide Tracking for existing
 Repairs.
 
-The Tracking Module strictly validates the database row and constructs output
-field-by-field. Invalid and unknown codes share a neutral result, and the public
-form uses POST rather than a credential-bearing URL.
+The Tracking Module rejects raw input longer than 128 characters before
+normalization or persistence, strictly validates the database row, and
+constructs output field-by-field. Invalid, oversized, and unknown codes share a
+neutral result, and the public form uses POST rather than a credential-bearing
+URL.
 
 Never expose customer identity/contact, Internal Notes, Diagnosis, serial
 numbers/specifications, free-form Service Mode details, Ticket Number, echoed

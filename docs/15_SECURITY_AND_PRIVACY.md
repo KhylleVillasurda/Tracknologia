@@ -215,11 +215,12 @@ uses an explicit return-column allow-list, and caps nested Customer Updates at
 25 message/timestamp pairs. Anonymous roles retain no direct `SELECT` privilege
 on `providers`, `repairs`, `repair_updates`, or `repair_status_events`.
 
-The Tracking Module validates the returned row with a strict Zod schema and
-constructs the public object field-by-field. An unexpected database field or
-oversized update list fails closed. Invalid and unknown codes share one neutral
-not-found response. The Next.js form submits by POST so the credential is not
-placed in a query string or browser history.
+The Tracking Module rejects raw input longer than 128 characters before
+normalization or persistence, validates the returned row with a strict Zod
+schema, and constructs the public object field-by-field. An unexpected database
+field or oversized update list fails closed. Invalid, oversized, and unknown
+codes share one neutral not-found response. The Next.js form submits by POST so
+the credential is not placed in a query string or browser history.
 
 Never expose:
 

@@ -156,6 +156,10 @@ The Tracking Code acts as a public credential and therefore must be:
 
 Do not expose sequential ticket numbers as the only public lookup credential.
 
+The Tracking Module rejects raw input longer than 128 characters before
+trimming or uppercasing it. PostgreSQL independently bounds direct RPC input
+so callers cannot bypass the application guard.
+
 ### Rate limiting
 
 Apply reasonable rate limiting to public lookup when infrastructure supports
@@ -204,6 +208,7 @@ Test:
 
 - valid Tracking Code returns safe view;
 - invalid/unknown code returns minimal failure;
+- oversized raw input is rejected before normalization or persistence;
 - customer contact information is excluded;
 - Internal Notes are excluded;
 - internal ids/auth ids are excluded;
@@ -220,9 +225,9 @@ Test:
 
 Feature 05 is implemented through:
 
-- `src/features/tracking/` for input normalization, strict projection
-  validation, customer-safe status/handover presentation, and the single
-  `lookupRepairByTrackingCode` Interface;
+- `src/features/tracking/` for pre-normalization input bounding, normalization,
+  strict projection validation, customer-safe status/handover presentation,
+  and the single `lookupRepairByTrackingCode` Interface;
 - `/track` for the responsive accountless POST-backed lookup experience;
 - `20260824030000_add_public_tracking_lookup.sql` for the bounded,
   allow-listed `lookup_public_repair` function;

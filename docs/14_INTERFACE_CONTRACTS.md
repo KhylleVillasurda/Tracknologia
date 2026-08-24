@@ -257,7 +257,9 @@ lookupRepairByTrackingCode(code) -> PublicRepairView | null
 
 Guarantees:
 
-- input is trimmed, uppercased, and accepted only as
+- raw input longer than 128 characters is rejected before normalization or
+  persistence;
+- bounded input is trimmed, uppercased, and accepted only as
   `TRK-[A-F0-9]{24}`;
 - malformed and unknown values both return `null` without revealing why;
 - database lookup uses the existing globally unique Tracking Code index;

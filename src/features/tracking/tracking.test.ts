@@ -90,6 +90,16 @@ describe("Tracking lookup", () => {
     ).resolves.toBeNull();
   });
 
+  it("rejects oversized raw input before normalization or persistence", async () => {
+    const { client, rpc } = trackingClient(publicProjectionRow());
+    const oversizedCode = TRACKING_CODE.padStart(129, " ");
+
+    await expect(
+      lookupRepairByTrackingCode(oversizedCode, client),
+    ).resolves.toBeNull();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "IN_PROGRESS",

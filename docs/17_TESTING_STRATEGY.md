@@ -96,6 +96,7 @@ Feature-local validation and lifecycle coverage lives in
 - valid lowercase/whitespace-padded Tracking Code normalizes and returns
   `PublicRepairView`;
 - malformed and unknown codes both return `null`/neutral not-found behavior;
+- raw input over 128 characters returns `null` before the public RPC is called;
 - strict projection parsing rejects unexpected fields or more than 25 Updates;
 - all five Repair statuses receive stable customer-facing semantics;
 - READY wording remains Provider-neutral across every Service Mode;
