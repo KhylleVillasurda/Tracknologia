@@ -113,19 +113,31 @@ Own authoritative Repair behavior.
 ### Conceptual interface
 
 ```ts
-createRepair(context, input): RepairResult
-getRepair(context, repairId): RepairDetail
-listRepairs(context, filter?): RepairSummary[]
-updateRepairDetails(context, repairId, input): RepairDetail
-changeRepairStatus(context, repairId, input): RepairDetail
-addCustomerUpdate(context, repairId, message): CustomerUpdate
-completeRepair(context, repairId): RepairDetail
+createRepair(input): RepairResult
+getRepair(repairId): RepairDetail | null
+listRepairs(options?): RepairPage
+getRepairCounts(): RepairCounts
+updateRepairDetails(repairId, input): RepairDetail
+changeRepairStatus(repairId, nextStatus): RepairDetail
+addCustomerUpdate(repairId, message): CustomerUpdate
+completeRepair(repairId): RepairDetail
 ```
 
-Feature 03 implements the narrow `createRepairFromRequest` seam needed by
-Request acceptance. Direct creation, Repair queries, detail updates, lifecycle
-transitions, and Customer Updates remain owned by Feature 04 rather than being
-partially implemented inside Repair Requests.
+Provider-facing Interfaces derive trusted Provider context internally. The
+narrow `createRepairFromRequest` seam remains available to Repair Requests for
+the accepted-request transaction, while both Repair origins converge on this
+Module for later reads, edits, updates, and lifecycle behavior.
+
+`listRepairs` returns at most 25 summaries plus page navigation flags and hides
+quoted/escaped punctuation-safe search construction, the aggregate `WAITING`
+filter, stable ordering, projections, and Provider scoping.
+`getRepair` composes the authoritative snapshot with Status Events and Customer
+Updates without exposing persistence mechanics to pages.
+
+`updateRepairDetails` distinguishes omitted Service Mode input (preserve the
+recorded snapshot) from an intentional clear. Changed non-null modes must be
+currently configured, and PostgreSQL serializes the write-time recheck against
+Provider Service Mode replacement.
 
 ### Hides
 
@@ -137,6 +149,7 @@ partially implemented inside Repair Requests.
 - Provider ownership checks;
 - Request origin linkage;
 - completion timestamps;
+- historical Service Mode preservation and write-time serialization;
 - persistence transaction details.
 
 ## 5. Tracking Module

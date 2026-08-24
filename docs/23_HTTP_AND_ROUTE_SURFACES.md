@@ -35,6 +35,30 @@ Exact Supabase Auth callbacks may add framework-specific routes as implementatio
 - `/dashboard/repairs/[repairId]`
 - `/dashboard/settings`
 
+`/dashboard/repairs` is implemented as a Server Component using awaited
+`searchParams`. It supports bounded, punctuation-safe ticket/customer/device
+search, actual-status filters, the `WAITING` aggregate, and 25-row
+Previous/Next pagination ordered by `updated_at DESC, id DESC`. Search values
+are quoted/escaped before raw PostgREST OR construction. Invalid search input
+is preserved and shown with an inline validation error rather than silently
+discarded; invalid values do not reach persistence.
+
+`/dashboard/repairs/new` loads the authenticated Provider's configured Service
+Modes and adapts a sectioned direct-intake form to `Repairs.createRepair`.
+Successful creation redirects to the new detail page only after revalidating
+dashboard and Repair list surfaces.
+
+`/dashboard/repairs/[repairId]` awaits the route parameter and renders the
+authoritative snapshot, private Provider information, Customer Updates,
+Status Events, valid lifecycle actions, and edit/update forms. Invalid and
+cross-Provider IDs share not-found behavior. Tracking Code display is private
+Provider functionality here; public lookup remains Feature 05.
+
+Repair detail editing preserves an omitted recorded Service Mode, treats the
+explicit blank choice as an intentional clear, and renders a removed historical
+mode as "recorded on this Repair; no longer offered." Changed non-null modes are
+validated again at database write time.
+
 `/dashboard/requests` implements Provider-scoped summary cards with 25-row
 pagination. It accepts `status` and `page` query parameters, including
 `/dashboard/requests?status=SUBMITTED&page=2`. Status changes reset to page 1;
@@ -49,7 +73,7 @@ profile. Provider business profile and Service Mode forms are rendered for
 Owners only; their Server Actions derive Provider/user identity from the
 authenticated membership rather than accepting IDs from form data.
 
-## Server Action candidates
+## Server Actions
 
 Good candidates:
 
@@ -62,6 +86,18 @@ Good candidates:
 - change Repair status;
 - add Customer Update;
 - complete Repair.
+
+Feature 04 actions are:
+
+- `createRepairAction(state, formData)`;
+- `updateRepairDetailsAction(state, formData)`;
+- `changeRepairStatusAction(state, formData)`;
+- `addCustomerUpdateAction(state, formData)`;
+- `completeRepairAction(state, formData)`.
+
+They accept Repair IDs only as untrusted locators. Provider/user identity,
+roles, status history actors, ticket numbers, and Tracking Codes are never
+accepted as mutation authority.
 
 Every Server Action still authenticates/authorizes and validates input before calling the feature Module.
 

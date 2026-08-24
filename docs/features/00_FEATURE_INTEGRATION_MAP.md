@@ -38,7 +38,7 @@ Protected feature operations depend on Auth for trusted identity and Provider co
 
 ### Providers
 
-Providers owns Provider identity and operating configuration. Repair Requests uses public Provider information to determine whether a provider-specific request page exists, whether Requests are accepted, and which Service Modes are supported.
+Providers owns Provider identity and operating configuration. Repair Requests uses public Provider information to determine whether a provider-specific request page exists, whether Requests are accepted, and which Service Modes are supported. Repairs validates intentional Service Mode selections against that configuration, while preserving already-recorded modes as historical Repair snapshots. Provider mode replacement and Repair mode changes serialize through the Provider-row lock.
 
 ### Repair Requests → Repairs
 
@@ -125,7 +125,8 @@ Provider User
 Auth
   ↓
 Repairs
-  ├── update Diagnosis/Internal Note
+  ├── update snapshot/Diagnosis/Internal Note
+  ├── preserve or intentionally change recorded Service Mode
   ├── add Customer Update
   └── change lifecycle state
           ↓
@@ -192,3 +193,6 @@ Do not duplicate the underlying rules in the dashboard route. It should call fea
 7. Repair status history and Customer Updates remain distinct concepts.
 8. Tracking exposes a restricted projection, not internal Repair data.
 9. Analytics must not become an availability dependency for normal repair management.
+10. Removing a Provider Service Mode does not erase historical Repair
+    arrangements; intentional Repair mode changes require current support at
+    commit time.
