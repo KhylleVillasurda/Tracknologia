@@ -2932,8 +2932,8 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
 
       expect(Object.keys(publicRow).sort()).toEqual([
         "brand",
-        "customer_updates",
         "current_status",
+        "customer_updates",
         "device_type",
         "last_updated_at",
         "model",
