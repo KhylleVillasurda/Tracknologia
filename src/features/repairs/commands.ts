@@ -60,6 +60,16 @@ function normalizeRepairInput(input: RepairSnapshotInput): RepairSnapshotInput {
   };
 }
 
+function normalizeRepairUpdateInput(
+  input: UpdateRepairDetailsInput,
+  serviceMode: RepairSnapshotInput["serviceMode"],
+): RepairSnapshotInput {
+  return normalizeRepairInput({
+    ...input,
+    serviceMode,
+  });
+}
+
 async function requireSupportedServiceMode(
   context: ProviderContext,
   serviceMode: RepairSnapshotInput["serviceMode"],
@@ -113,10 +123,10 @@ export async function createRepair(
 
 /**
  * Creates the authoritative Repair side of an accepted Request. The caller is
- * the Repair Requests Module, which supplies trusted Provider context.
+ * the Repair Requests Module; the transaction rechecks authenticated Provider
+ * ownership at write time.
  */
 export async function createRepairFromRequest(
-  _context: ProviderContext,
   requestId: string,
   input: RequestOriginRepairInput,
   client?: SupabaseClient,
@@ -157,19 +167,31 @@ export async function updateRepairDetails(
   const supabase = client ?? (await createClient());
   const context = await requireProviderContext(supabase);
   const existing = await requireOwnedRepair(context, id.data, supabase);
-  if (parsed.data.serviceMode !== (existing.serviceMode ?? undefined)) {
-    await requireSupportedServiceMode(
-      context,
-      parsed.data.serviceMode,
-      supabase,
+  const existingServiceMode = existing.serviceMode ?? undefined;
+  const effectiveServiceMode =
+    parsed.data.serviceMode === undefined
+      ? existingServiceMode
+      : (parsed.data.serviceMode ?? undefined);
+
+  if (!effectiveServiceMode && parsed.data.serviceModeDetails) {
+    throw new RepairError(
+      "Select a Service Mode before adding arrangement details",
+      "INVALID_INPUT",
     );
+  }
+
+  if (
+    parsed.data.serviceMode !== undefined &&
+    effectiveServiceMode !== existingServiceMode
+  ) {
+    await requireSupportedServiceMode(context, effectiveServiceMode, supabase);
   }
 
   const updated = await updateRepairRecord(
     supabase,
     context.providerId,
     id.data,
-    normalizeRepairInput(parsed.data),
+    normalizeRepairUpdateInput(parsed.data, effectiveServiceMode),
   );
   if (!updated) {
     throw new RepairError("Repair was not found", "REPAIR_NOT_FOUND");

@@ -209,6 +209,7 @@ export function RepairDetailForms({
                 values={repairValues(repair)}
                 fieldErrors={detailState?.fieldErrors}
                 serviceModes={serviceModes}
+                recordedServiceMode={repair.serviceMode}
                 disabled={detailPending}
               />
               <Button type="submit" disabled={detailPending}>

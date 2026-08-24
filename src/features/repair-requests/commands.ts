@@ -139,12 +139,7 @@ export async function acceptRepairRequest(
   }
 
   try {
-    return await createRepairFromRequest(
-      context,
-      id.data,
-      verifiedInput.data,
-      supabase,
-    );
+    return await createRepairFromRequest(id.data, verifiedInput.data, supabase);
   } catch (error) {
     if (error instanceof RepairError) {
       const code =

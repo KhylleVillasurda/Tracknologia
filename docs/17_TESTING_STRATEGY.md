@@ -72,7 +72,11 @@ Feature-local validation coverage lives in
 - Customer Update can be added without status change;
 - completion sets terminal state/timestamp;
 - shared direct/request/detail schemas enforce durable snapshot bounds;
-- list search rejects filter-grammar metacharacters and pages remain stable;
+- detail edits preserve a recorded Service Mode when it is omitted and allow
+  only an explicit clear or a currently configured replacement;
+- list search accepts common punctuation while safely quoting/escaping raw
+  PostgREST filter values, and pages remain stable;
+- the aggregate `WAITING` filter returns both waiting states only;
 - immutable Repair identity/lifecycle columns reject direct authenticated
   updates;
 - concurrent same-Repair transitions serialize to one durable outcome;
@@ -84,7 +88,8 @@ Feature-local validation coverage lives in
 Feature-local validation and lifecycle coverage lives in
 `src/features/repairs/repairs.test.ts`. Feature 04 PostgreSQL/RLS cases extend
 `tests/integration/db.test.ts` and require the
-`20260824023000_complete_repairs.sql` migration.
+`20260824023000_complete_repairs.sql` and
+`20260824024000_harden_repair_service_mode_updates.sql` migrations.
 
 ### Tracking
 
@@ -135,6 +140,12 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - direct Provider creation plus initial `NULL -> IN_PROGRESS` event;
 - allow-listed Repair detail update versus protected identity/lifecycle
   columns;
+- historical Repair Service Mode preservation after Provider configuration
+  removal;
+- direct unsupported Repair mode replacement denial with durable-state
+  preservation;
+- Repair mode edit versus Provider Service Mode replacement serialization;
+- punctuation-safe Repair search and aggregate Waiting filtering;
 - every allowed and rejected Repair transition;
 - completion timestamp consistency and reopening denial;
 - same-Repair transition concurrency under row locking;

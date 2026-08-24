@@ -12,6 +12,7 @@ interface RepairFieldsProps {
   values?: RepairFieldValues;
   fieldErrors?: Record<string, string>;
   serviceModes: ProviderServiceMode[];
+  recordedServiceMode?: ServiceMode | null;
   disabled?: boolean;
 }
 
@@ -30,21 +31,30 @@ function FieldError({
   ) : null;
 }
 
+const SERVICE_MODE_LABELS: Record<ServiceMode, string> = {
+  DROP_OFF: "Drop-off",
+  MEETUP: "Meetup",
+  HOME_SERVICE: "Home service",
+  OTHER: "Other arrangement",
+};
+
 function modeLabel(mode: ServiceMode) {
-  return {
-    DROP_OFF: "Drop-off",
-    MEETUP: "Meetup",
-    HOME_SERVICE: "Home service",
-    OTHER: "Other arrangement",
-  }[mode];
+  return SERVICE_MODE_LABELS[mode];
 }
 
 export function RepairFields({
   values = {},
   fieldErrors,
   serviceModes,
+  recordedServiceMode,
   disabled = false,
 }: RepairFieldsProps) {
+  const historicalServiceMode =
+    recordedServiceMode &&
+    !serviceModes.some((mode) => mode.mode === recordedServiceMode)
+      ? recordedServiceMode
+      : null;
+
   return (
     <div className="space-y-8">
       <section className="space-y-4">
@@ -287,6 +297,25 @@ export function RepairFields({
             />
             <span>No Service Mode selected</span>
           </label>
+          {historicalServiceMode ? (
+            <label className="flex items-start gap-3 rounded-xl border border-amber-700/20 bg-amber-700/5 p-3 text-sm">
+              <input
+                type="radio"
+                name="serviceMode"
+                value={historicalServiceMode}
+                defaultChecked={values.serviceMode === historicalServiceMode}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">
+                  {modeLabel(historicalServiceMode)}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Recorded on this Repair; no longer offered.
+                </span>
+              </span>
+            </label>
+          ) : null}
           {serviceModes.map((mode) => (
             <label
               key={mode.mode}

@@ -13,9 +13,9 @@ import { Input } from "@/components/ui/input";
 import {
   listRepairs,
   repairListOptionsSchema,
+  repairListStatusEnum,
   repairPageSchema,
-  repairStatusEnum,
-  type RepairStatus,
+  type RepairListStatus,
 } from "@/features/repairs";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +26,10 @@ export const metadata: Metadata = {
   description: "Manage active and completed Repairs",
 };
 
-const FILTERS: Array<{ label: string; status?: RepairStatus }> = [
+const FILTERS: Array<{ label: string; status?: RepairListStatus }> = [
   { label: "All" },
   { label: "In Progress", status: "IN_PROGRESS" },
+  { label: "Waiting", status: "WAITING" },
   { label: "Waiting for Parts", status: "WAITING_FOR_PARTS" },
   { label: "Awaiting Approval", status: "AWAITING_APPROVAL" },
   { label: "Ready", status: "READY" },
@@ -44,7 +45,7 @@ function repairListHref({
   query,
   page = 1,
 }: {
-  status?: RepairStatus;
+  status?: RepairListStatus;
   query?: string;
   page?: number;
 }) {
@@ -81,7 +82,7 @@ export default async function RepairsPage({
   }>;
 }) {
   const params = await searchParams;
-  const statusResult = repairStatusEnum.safeParse(
+  const statusResult = repairListStatusEnum.safeParse(
     firstSearchParam(params.status),
   );
   const status = statusResult.success ? statusResult.data : undefined;
@@ -93,6 +94,10 @@ export default async function RepairsPage({
     query: queryCandidate,
     page,
   });
+  const searchError = optionsResult.success
+    ? undefined
+    : optionsResult.error.issues.find((issue) => issue.path[0] === "query")
+        ?.message;
   const options = optionsResult.success
     ? optionsResult.data
     : { status, page: 1, query: undefined };
@@ -119,21 +124,34 @@ export default async function RepairsPage({
 
       <form
         method="get"
-        className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 sm:flex-row"
+        className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-start"
       >
         {status ? <input type="hidden" name="status" value={status} /> : null}
-        <Input
-          type="search"
-          name="q"
-          defaultValue={options.query ?? ""}
-          placeholder="Search ticket, customer, or device"
-          maxLength={80}
-          aria-label="Search Repairs"
-        />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Input
+            type="search"
+            name="q"
+            defaultValue={queryCandidate ?? ""}
+            placeholder="Search ticket, customer, or device"
+            maxLength={80}
+            aria-label="Search Repairs"
+            aria-invalid={Boolean(searchError)}
+            aria-describedby={searchError ? "repair-search-error" : undefined}
+          />
+          {searchError ? (
+            <p
+              id="repair-search-error"
+              className="text-xs text-destructive"
+              role="alert"
+            >
+              {searchError}
+            </p>
+          ) : null}
+        </div>
         <Button type="submit" variant="outline">
           Search
         </Button>
-        {options.query ? (
+        {queryCandidate ? (
           <Link
             href={repairListHref({ status })}
             className={cn(buttonVariants({ variant: "ghost" }), "sm:w-fit")}

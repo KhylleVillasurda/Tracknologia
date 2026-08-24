@@ -26,6 +26,15 @@ const REPAIR_SUMMARY_COLUMNS =
 const REPAIR_DETAIL_COLUMNS =
   "id, provider_id, repair_request_id, origin, ticket_number, tracking_code, customer_name, customer_phone, customer_email, device_type, brand, model, serial_number, color_variant, device_specs, physical_condition, accessories_received, reported_problem, initial_observation, diagnosis, internal_notes, service_mode, service_mode_details, current_status, created_by_user_id, created_at, updated_at, completed_at";
 
+function repairSearchPattern(value: string): string {
+  const escaped = value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("%", "\\\\%")
+    .replaceAll("_", "\\\\_");
+  return `"%${escaped}%"`;
+}
+
 function throwRepairPersistenceError(
   operation: string,
   message: string,
@@ -165,12 +174,17 @@ export async function listRepairRecords(
     .order("updated_at", { ascending: false })
     .order("id", { ascending: false });
 
-  if (options.status) {
+  if (options.status === "WAITING") {
+    query = query.in("current_status", [
+      "WAITING_FOR_PARTS",
+      "AWAITING_APPROVAL",
+    ]);
+  } else if (options.status) {
     query = query.eq("current_status", options.status);
   }
 
   if (options.query) {
-    const pattern = `%${options.query}%`;
+    const pattern = repairSearchPattern(options.query);
     query = query.or(
       [
         `ticket_number.ilike.${pattern}`,

@@ -54,7 +54,7 @@ export default async function DashboardPage() {
           {
             label: "Waiting",
             count: repairCounts.waiting,
-            href: "/dashboard/repairs",
+            href: "/dashboard/repairs?status=WAITING",
           },
           {
             label: "Ready",

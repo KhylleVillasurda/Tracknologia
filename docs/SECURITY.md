@@ -69,6 +69,13 @@ Repair snapshot/detail columns for their Provider. They cannot directly insert
 Repairs or Status Events, or rewrite Provider ownership, source Request,
 origin, ticket/tracking identifiers, lifecycle state, actors, or timestamps.
 
+An actual Repair `service_mode` change is additionally guarded by
+`enforce_repair_service_mode_update`. The trigger locks the owning Provider row
+`FOR SHARE` and rejects unsupported new non-null values, so direct Supabase
+writes cannot bypass configured-mode validation and concurrent Owner mode
+replacement cannot create a stale-check success. Unchanged historical modes
+remain valid after later Provider configuration removal.
+
 Direct creation uses `create_provider_repair` to commit one Repair and initial
 Status Event atomically. Lifecycle changes use `change_repair_status`, which
 locks the Repair, rechecks the exact transition graph, appends history, and
@@ -150,7 +157,8 @@ Unique `repair_request_id` prevents duplicate Repair creation on retry.
 
 Feature 04 grants only allow-listed Repair detail columns and Customer Update
 insertion. Repair creation and lifecycle/history remain narrow transaction
-surfaces rather than direct table writes.
+surfaces rather than direct table writes. Service Mode detail editing remains a
+single Repair update with a narrow changed-mode integrity trigger.
 
 ## Environment secrets
 
@@ -188,6 +196,11 @@ At minimum test:
 - illegal Repair status transitions are rejected.
 - direct Repair creation cannot leave a Repair without its initial event;
 - direct authenticated status/identity edits and Status Event insertion fail;
+- unrelated detail edits preserve removed historical Repair Service Modes;
+- direct unsupported Repair Service Mode updates fail without changing durable
+  state;
+- concurrent Repair mode edits and Provider mode replacement serialize to a
+  valid outcome;
 - Customer Updates are Provider-scoped, append-only, and independent of status;
 - concurrent lifecycle changes leave one consistent status/event outcome;
 - completed Repairs cannot be reopened and have a matching completion time.

@@ -89,6 +89,24 @@ describe("Provider-created Repair validation", () => {
       expect(result.error.issues[0]?.path).toEqual(["diagnosis"]);
     }
   });
+
+  it("distinguishes an omitted Service Mode from an intentional clear", () => {
+    const preserved = updateRepairDetailsSchema.safeParse({
+      ...validRepairInput,
+      serviceMode: undefined,
+    });
+    const cleared = updateRepairDetailsSchema.safeParse({
+      ...validRepairInput,
+      serviceMode: null,
+      serviceModeDetails: "",
+    });
+
+    expect(preserved.success).toBe(true);
+    expect(cleared.success).toBe(true);
+    if (cleared.success) {
+      expect(cleared.data.serviceMode).toBeNull();
+    }
+  });
 });
 
 describe("Repair lifecycle", () => {
@@ -126,10 +144,28 @@ describe("Repair list and Customer Update validation", () => {
     }
   });
 
-  it("rejects PostgREST filter metacharacters from search input", () => {
+  it("bounds search input without rejecting punctuation", () => {
     expect(
       repairListOptionsSchema.safeParse({ query: "name),id.eq.*" }).success,
+    ).toBe(true);
+    expect(
+      repairListOptionsSchema.safeParse({ query: "x".repeat(81) }).success,
     ).toBe(false);
+  });
+
+  it("accepts ordinary punctuation in customer and device searches", () => {
+    for (const query of ["O'Connor", "Galaxy S23+", "AT&T", "A/B"]) {
+      expect(repairListOptionsSchema.safeParse({ query }).success).toBe(true);
+    }
+  });
+
+  it("accepts the aggregate Waiting Repair filter", () => {
+    const result = repairListOptionsSchema.safeParse({ status: "WAITING" });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.status).toBe("WAITING");
+    }
   });
 
   it("requires a bounded nonblank Customer Update", () => {

@@ -117,6 +117,13 @@ Provider-authored detail fields. They cannot directly change origin, source,
 ticket/tracking identifiers, status, ownership, actors, or timestamps. Direct
 Repair insertion and Status Event insertion remain denied.
 
+Repair Service Mode is a historical snapshot. Direct and application writes
+that actually change `service_mode` pass through a narrow `SECURITY DEFINER`
+trigger. It locks the owning Provider row `FOR SHARE` and rejects an unsupported
+new non-null mode, serializing with the Owner-only Service Mode replacement's
+`FOR UPDATE` lock. Unchanged historical modes and later Provider mode removal
+remain valid; no mutable-configuration foreign key is introduced.
+
 `create_provider_repair` atomically creates a direct Repair plus its initial
 Status Event. `change_repair_status` locks the Repair and atomically changes
 status, appends history, and maintains `completed_at`. Both functions derive
@@ -167,6 +174,8 @@ same-Provider Request/Repair ownership, source uniqueness, or identifier shape.
 Feature 04 applies the same snapshot bounds to direct creation and later detail
 editing, bounds Customer Updates to nonblank 2,000-character messages, and
 rechecks the exact Repair transition graph inside the database transaction.
+Detail-edit input distinguishes omission from an intentional Service Mode
+clear, while PostgreSQL repeats changed-mode support at write time.
 
 ## Public Repair Request submission
 
