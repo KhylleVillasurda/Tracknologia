@@ -46,7 +46,7 @@ Acceptance criterion: one authenticated owner can create/access their Provider d
 - safe `PublicRepairView`;
 - difficult-to-enumerate Tracking Code;
 - public rate-limit seam;
-- optional tracking analytics.
+- minimal successful-view Tracking analytics.
 
 ## M4 — Repair lifecycle
 

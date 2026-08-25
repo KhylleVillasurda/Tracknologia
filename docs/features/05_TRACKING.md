@@ -142,7 +142,12 @@ No Provider authentication is required for normal customer lookup.
 
 ### Analytics
 
-A successful or attempted tracking view may be measured to validate customer usage. Avoid collecting unnecessary personal information.
+Tracking returns the validated `PublicRepairView` without importing or waiting
+for Analytics. After a successful result, the `/track` Server Action captures
+the submitted code server-side and schedules one Analytics observation with
+Next.js `after()`. Malformed, unknown, failed, or invalid-projection lookups
+schedule nothing. Only the resolved Repair id and observation time are
+persisted; the Tracking Code and customer information are not stored.
 
 ## Security requirements
 
@@ -235,10 +240,14 @@ Feature 05 is implemented through:
   every status meaning, update bounds, and READY wording;
 - real PostgreSQL integration coverage for anonymous lookup, both Repair
   origins, closed-Provider continuity, raw-table denial, and field exclusion.
+- route-owned, post-response Feature 06 observation after successful projection
+  validation; Analytics latency/failure does not delay or change the public
+  Tracking result.
 
 The lookup function returns only named public columns and nested Update
 message/timestamp pairs. Anonymous callers retain no direct table access.
-Tracking analytics remains Feature 06 and is not an availability dependency.
+Successful-view analytics is owned by Feature 06 and is not an availability
+dependency.
 
 ## Definition of done
 

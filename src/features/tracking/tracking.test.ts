@@ -53,6 +53,7 @@ describe("Tracking lookup", () => {
     expect(rpc).toHaveBeenCalledWith("lookup_public_repair", {
       p_tracking_code: TRACKING_CODE,
     });
+    expect(rpc).toHaveBeenCalledOnce();
     expect(result).toEqual({
       providerDisplayName: "Jacinth Device Care",
       deviceSummary: "Lenovo IdeaPad 3 · Laptop",
@@ -88,6 +89,7 @@ describe("Tracking lookup", () => {
     await expect(
       lookupRepairByTrackingCode(TRACKING_CODE, unknown.client),
     ).resolves.toBeNull();
+    expect(unknown.rpc).toHaveBeenCalledOnce();
   });
 
   it("rejects oversized raw input before normalization or persistence", async () => {
@@ -174,17 +176,18 @@ describe("Tracking lookup", () => {
   );
 
   it("fails closed when persistence adds an unexpected public field", async () => {
-    const { client } = trackingClient(
+    const { client, rpc } = trackingClient(
       publicProjectionRow({ internal_notes: "Must never be public" }),
     );
 
     await expect(
       lookupRepairByTrackingCode(TRACKING_CODE, client),
     ).rejects.toThrow("Public Tracking projection is invalid");
+    expect(rpc).toHaveBeenCalledOnce();
   });
 
   it("fails closed when persistence returns more than 25 updates", async () => {
-    const { client } = trackingClient(
+    const { client, rpc } = trackingClient(
       publicProjectionRow({
         customer_updates: Array.from({ length: 26 }, (_, index) => ({
           message: `Update ${index + 1}`,
@@ -196,5 +199,6 @@ describe("Tracking lookup", () => {
     await expect(
       lookupRepairByTrackingCode(TRACKING_CODE, client),
     ).rejects.toThrow("Public Tracking projection is invalid");
+    expect(rpc).toHaveBeenCalledOnce();
   });
 });

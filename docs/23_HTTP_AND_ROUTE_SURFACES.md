@@ -15,6 +15,14 @@ query parameters or browser history. The action passes untrusted FormData to
 neutral not-found result, while infrastructure failure becomes a generic
 temporary-unavailable state.
 
+After a successful projection is validated, the Server Action captures the
+submitted string on the server and schedules one best-effort Analytics
+observation with Next.js `after()`. The found response is returned without
+waiting for the callback. Malformed/unknown/failed lookups schedule nothing,
+and neither the Tracking Code nor Analytics state enters the serialized action
+result. There is no separate public analytics route or browser-visible
+analytics payload.
+
 The rendered result contains Provider display name, safe device summary,
 customer-facing status meaning, Service Mode label, READY handover guidance,
 computed last activity time, and at most 25 message/timestamp-only Customer

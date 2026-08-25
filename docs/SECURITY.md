@@ -150,6 +150,28 @@ Production exposure still requires durable abuse/rate limiting that protects
 the directly callable Supabase function as well as the Next.js route. Do not
 represent a per-process memory counter as sufficient distributed protection.
 
+## Analytics telemetry
+
+Successful Tracking observation uses the separate
+`record_successful_tracking_view(text)` function. The function bounds and
+normalizes input, resolves an existing Repair internally, stores only
+`repair_id` and server time, fixes its `search_path`, and returns no existence or
+Repair data.
+
+`tracking_events` has RLS enabled with no anonymous/authenticated direct table
+privileges or policies. Telemetry excludes Tracking Codes, customer/contact and
+Provider snapshots, IP addresses, user agents, cookies, fingerprints, Auth ids,
+tokens, and arbitrary metadata. Repeated views are not represented as unique
+Customers. Analytics persistence errors are sanitized and do not fail an
+otherwise successful public Tracking result. The `/track` Server Action keeps
+the submitted code inside its server closure and uses Next.js `after()` so an
+unresolved Analytics operation is outside the response path. The serialized
+action result contains neither the credential nor Analytics state.
+
+The observation function is still a publicly callable write surface and must
+be covered by the same durable abuse controls required for public Tracking
+before broad production exposure.
+
 ## Public Repair Requests
 
 Implemented controls:
@@ -209,6 +231,14 @@ At minimum test:
 - public tracking does not expose internal notes/contact data;
 - invalid tracking identifiers reveal no sensitive information;
 - public tracking caps Updates and returns message/timestamp pairs only;
+- anonymous/authenticated callers cannot read or write `tracking_events`
+  directly;
+- malformed and unknown Tracking Codes create no telemetry;
+- oversized direct observation input creates no telemetry or existence detail;
+- successful-view telemetry contains only Repair correlation and observation
+  time;
+- Analytics latency/failure neither delays a successful Tracking response nor
+  logs the credential/database detail;
 - anonymous callers cannot read raw Repair/Update/Status Event tables;
 - direct and Request-origin Repairs share one public projection;
 - closing new Requests does not disable existing Repair tracking;

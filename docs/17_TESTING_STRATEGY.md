@@ -108,6 +108,25 @@ shape, both Repair origins, closed-Provider continuity, Update ordering/cap,
 and activity timestamps extend `tests/integration/db.test.ts` and require
 `20260824030000_add_public_tracking_lookup.sql`.
 
+### Analytics
+
+- the `/track` Server Action schedules a successful observation with Next.js
+  `after()` and returns before an unresolved Analytics task starts;
+- malformed, unknown, unavailable, or invalid public projections schedule
+  nothing;
+- persistence failure returns `false` and uses a sanitized log inside the
+  deferred task;
+- analytics payloads contain no Repair/customer snapshot or Tracking
+  credential.
+
+Route-adapter coverage lives in `src/app/(public)/track/actions.test.ts`;
+feature-local coverage lives in `src/features/analytics/analytics.test.ts` and
+`src/features/tracking/tracking.test.ts`.
+Real table grants/RLS, bounded neutral RPC behavior, repeated raw views,
+distinct-Repair adoption, both Repair origins, and stored column shape extend
+`tests/integration/db.test.ts` and require
+`20260825010000_add_tracking_analytics.sql`.
+
 ## Contract tests
 
 Contract tests verify security-sensitive boundaries and stable feature contracts without requiring a live PostgreSQL instance. They complement unit and module tests by checking rules such as token hashing, public/private projection shape, and Provider invariants. They run as part of `pnpm test:run`.
@@ -167,6 +186,14 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - direct and Request-origin Repairs share the same public behavior;
 - existing Repair Tracking survives Provider Request closure;
 - anonymous raw Repair, Update, and Status Event reads remain denied.
+- anonymous and authenticated direct `tracking_events` access remains denied;
+- malformed/unknown telemetry RPC inputs insert nothing and reveal no detail;
+- direct telemetry RPC input over 128 bytes inserts nothing and returns no
+  existence detail;
+- repeated valid observations create raw views while distinct Repair adoption
+  remains one;
+- direct and Request-origin Repairs can both record successful views;
+- telemetry rows contain only id, Repair correlation, and observation time.
 
 Any security-sensitive database change, including schema, RLS, policy, constraint, trigger, or RPC changes, requires the real PostgreSQL / RLS integration suite before completion.
 

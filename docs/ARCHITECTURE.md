@@ -97,6 +97,25 @@ Public tracking is a distinct feature even though it reads Repair data.
 
 It exposes a restricted `PublicRepairView` rather than the full Repair representation. This gives the interface a security role as well as a design role.
 
+## Analytics / pilot metrics
+
+Analytics derives Provider, Request, Repair, origin, lifecycle, and completion
+metrics from authoritative domain tables. The Next.js adapter composes Tracking
+and Analytics without coupling the two feature Modules:
+
+```text
+Tracking -> PublicRepairView
+                  ↓
+       /track Server Action
+        ├── response to Customer
+        └── after() -> Analytics -> Supabase/PostgreSQL
+```
+
+The Analytics Interface hides best-effort persistence for minimal successful-
+view telemetry. Analytics latency/failure is outside the response path and does
+not make Tracking/domain operations unavailable. No dashboard, broad event
+platform, or external analytics dependency is part of the MVP architecture.
+
 ## Future native mobile
 
 A native mobile client is deferred. If validated later, stable HTTP Route Handlers or a separate backend can adapt to the same business rules. Do not build a broad REST layer solely for hypothetical future mobile use.

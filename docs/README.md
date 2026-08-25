@@ -47,4 +47,8 @@ Included features:
 - Analytics / Pilot Metrics
 - Cross-feature Integration Map
 
-These documents are aligned to the current Tracknologia v0.3 MVP model: Provider-centric architecture, `SHOP` and `INDEPENDENT` parity, optional customer Repair Requests, direct Provider Repair creation, minimal meaningful Repair statuses, accountless Tracking, and the lean seven-table core data model.
+These documents are aligned to the current Tracknologia v0.3 MVP model:
+Provider-centric architecture, `SHOP` and `INDEPENDENT` parity, optional
+customer Repair Requests, direct Provider Repair creation, minimal meaningful
+Repair statuses, accountless Tracking, a lean core data model, and minimal
+successful-view validation telemetry.
