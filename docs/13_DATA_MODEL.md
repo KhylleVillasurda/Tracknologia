@@ -20,10 +20,9 @@ Rule:
 8. `repairs`
 9. `repair_status_events`
 10. `repair_updates`
+11. `tracking_events` (validation telemetry)
 
 Supabase manages `auth.users` separately.
-
-`tracking_events` is optional validation telemetry, not a required domain table.
 
 ## provider_user_profiles
 
@@ -280,6 +279,26 @@ scoped RLS, and `(repair_id, created_at DESC, id DESC)` index. Provider members
 may append and read updates for their own Repairs, but cannot edit or delete
 them. Anonymous roles receive no raw table access.
 
+## tracking_events
+
+```text
+id                     uuid PK
+repair_id              uuid FK -> repairs.id
+viewed_at               timestamptz
+```
+
+This is minimal validation telemetry rather than authoritative Repair history.
+One row means one successful public Tracking observation; repeated refreshes
+remain repeated rows and must not be interpreted as distinct Customers. The
+Repair relationship cascades on deletion. The table deliberately excludes the
+Tracking Code, Provider/customer snapshots, contact information, request data,
+network identifiers, browser/device fingerprints, Auth ids, and arbitrary
+metadata.
+
+Anonymous and authenticated roles have no direct table privileges or RLS
+policies. A bounded `record_successful_tracking_view(text)` function resolves a
+valid existing Repair internally and returns no existence detail.
+
 ## Public Tracking read model
 
 `PublicRepairView` is an application read model backed by the
@@ -331,6 +350,7 @@ Normalize Device only if reusable device history becomes a validated requirement
 - index `repairs(provider_id, created_at)`
 - index `repair_status_events(repair_id, created_at)`
 - index `repair_updates(repair_id, created_at DESC, id DESC)`
+- index `tracking_events(repair_id, viewed_at DESC)`
 
 ## RLS ownership path
 

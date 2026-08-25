@@ -2917,6 +2917,22 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "close Provider Requests before public Tracking",
       );
 
+      const repairTiming = assertSupabaseSuccess(
+        await adminClient
+          .from("repairs")
+          .select("updated_at")
+          .eq("id", receipt.repair_id)
+          .single(),
+        "read Repair activity timestamp for public Tracking",
+      );
+      const repairUpdatedAt = repairTiming.data?.updated_at;
+      if (!repairUpdatedAt) {
+        throw new Error("Public Tracking Repair timestamp was not found");
+      }
+      const latestCustomerUpdateAt = Math.max(
+        ...updateRows.map((update) => Date.parse(update.created_at)),
+      );
+
       const lookup = assertSupabaseSuccess(
         await anonClient.rpc("lookup_public_repair", {
           p_tracking_code: receipt.tracking_code,
@@ -2960,8 +2976,91 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "message",
       ]);
       expect(Date.parse(publicRow.last_updated_at)).toBe(
-        Date.parse(publicRow.customer_updates[0].created_at),
+        Math.max(Date.parse(repairUpdatedAt), latestCustomerUpdateAt),
       );
+
+      const anonTrackingEvents = await anonClient
+        .from("tracking_events")
+        .select("*");
+      const memberTrackingEvents = await auth.client
+        .from("tracking_events")
+        .select("*");
+      const anonTrackingInsert = await anonClient
+        .from("tracking_events")
+        .insert({ repair_id: receipt.repair_id })
+        .select("id");
+      const memberTrackingInsert = await auth.client
+        .from("tracking_events")
+        .insert({ repair_id: receipt.repair_id })
+        .select("id");
+      const memberTrackingUpdate = await auth.client
+        .from("tracking_events")
+        .update({ viewed_at: new Date().toISOString() })
+        .eq("repair_id", receipt.repair_id)
+        .select("id");
+      const memberTrackingDelete = await auth.client
+        .from("tracking_events")
+        .delete()
+        .eq("repair_id", receipt.repair_id)
+        .select("id");
+      expect(anonTrackingEvents.error).not.toBeNull();
+      expect(memberTrackingEvents.error).not.toBeNull();
+      expect(anonTrackingInsert.error).not.toBeNull();
+      expect(memberTrackingInsert.error).not.toBeNull();
+      expect(memberTrackingUpdate.error).not.toBeNull();
+      expect(memberTrackingDelete.error).not.toBeNull();
+
+      const oversizedObservation = assertSupabaseSuccess(
+        await anonClient.rpc("record_successful_tracking_view", {
+          p_tracking_code: receipt.tracking_code.padStart(129, " "),
+        }),
+        "reject oversized direct Tracking observation input",
+      );
+      expect(oversizedObservation.data).toBeNull();
+      const viewsAfterOversizedInput = assertSupabaseSuccess(
+        await adminClient
+          .from("tracking_events")
+          .select("id")
+          .eq("repair_id", receipt.repair_id),
+        "verify oversized Tracking observation created no telemetry",
+      );
+      expect(viewsAfterOversizedInput.data).toEqual([]);
+
+      for (const submittedCode of [
+        receipt.tracking_code,
+        `  ${receipt.tracking_code.toLowerCase()}  `,
+        "TN-2026-0000000001",
+        "TRK-FFFFFFFFFFFFFFFFFFFFFFFF",
+      ]) {
+        assertSupabaseSuccess(
+          await anonClient.rpc("record_successful_tracking_view", {
+            p_tracking_code: submittedCode,
+          }),
+          "record a successful public Tracking view when eligible",
+        );
+      }
+
+      const recordedViews = assertSupabaseSuccess(
+        await adminClient
+          .from("tracking_events")
+          .select("*")
+          .eq("repair_id", receipt.repair_id)
+          .order("viewed_at", { ascending: true }),
+        "read successful public Tracking views",
+      );
+      expect(recordedViews.data).toHaveLength(2);
+      expect(recordedViews.data?.map((event) => event.repair_id)).toEqual([
+        receipt.repair_id,
+        receipt.repair_id,
+      ]);
+      expect(Object.keys(recordedViews.data?.[0] ?? {}).sort()).toEqual([
+        "id",
+        "repair_id",
+        "viewed_at",
+      ]);
+      expect(
+        new Set(recordedViews.data?.map((event) => event.repair_id)).size,
+      ).toBe(1);
 
       for (const invalidCode of [
         "TN-2026-0000000001",
@@ -3078,6 +3177,23 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       expect(publicRow).not.toHaveProperty("origin");
       expect(publicRow).not.toHaveProperty("ticket_number");
       expect(publicRow).not.toHaveProperty("tracking_code");
+
+      assertSupabaseSuccess(
+        await anonClient.rpc("record_successful_tracking_view", {
+          p_tracking_code: repairReceipt.tracking_code,
+        }),
+        "record Request-origin public Tracking view",
+      );
+      const recordedView = assertSupabaseSuccess(
+        await adminClient
+          .from("tracking_events")
+          .select("repair_id")
+          .eq("repair_id", repairReceipt.repair_id),
+        "read Request-origin public Tracking view",
+      );
+      expect(recordedView.data).toEqual([
+        { repair_id: repairReceipt.repair_id },
+      ]);
     } finally {
       await cleanupFixture(adminClient, {
         providerIds: [provider.providerId],

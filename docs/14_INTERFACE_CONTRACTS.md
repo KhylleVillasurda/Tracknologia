@@ -292,3 +292,27 @@ It must not contain:
 Unexpected persistence failures are surfaced to the Next.js adapter as an
 unavailable outcome without exposing database details. Durable rate limiting
 must cover the public RPC itself before broad production exposure.
+
+Tracking returns this projection without invoking Analytics. After success, the
+`/track` Server Action schedules the Analytics observation below with Next.js
+`after()` and returns `PublicRepairView` without awaiting telemetry.
+
+## Analytics — recordSuccessfulTrackingView
+
+```text
+recordSuccessfulTrackingView(trackingCode) -> boolean
+```
+
+Guarantees:
+
+- scheduled only after Tracking successfully resolves the server-captured
+  Tracking Code;
+- invokes only `record_successful_tracking_view(text)`;
+- relies on that bounded RPC to normalize and revalidate the captured code;
+- returns `true` after successful persistence;
+- catches persistence failure, emits one constant sanitized log message, and
+  returns `false`;
+- never exposes or stores the Tracking Code in analytics rows;
+- never receives a Repair/customer object or private projection fields;
+- runs in a response-deferred callback and therefore does not add persistence
+  latency to a successful Tracking response.

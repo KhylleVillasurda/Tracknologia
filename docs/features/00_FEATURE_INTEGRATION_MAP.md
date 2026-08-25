@@ -26,8 +26,18 @@ This document explains how Tracknologia's feature Modules cooperate without beco
                                           │    Tracking     │
                                           └─────────────────┘
 
-Analytics observes meaningful events from the system but should not become
-required for core domain operations to succeed.
+┌───────────────────────┐
+│ Next.js /track action │
+└───────────┬───────────┘
+            │ after(success)
+            ▼
+   ┌─────────────────┐
+   │    Analytics    │
+   └─────────────────┘
+
+Analytics derives domain metrics from authoritative Provider, Request, Repair,
+and Status Event rows. It stores only successful Tracking views and must not
+become required for public lookup or core domain operations to succeed.
 ```
 
 ## Dependency principles
@@ -66,7 +76,12 @@ Tracking never returns a raw `Repair` row and never mutates a Repair.
 
 ### Analytics
 
-Analytics receives or records events after meaningful behavior occurs. Core features should not become unavailable merely because analytics collection fails.
+Analytics derives Provider creation, Request conversion, Repair origin,
+lifecycle, and completion metrics from existing durable domain rows. After
+Tracking returns a customer-safe result, the `/track` Server Action schedules
+one best-effort `recordSuccessfulTrackingView` call with Next.js `after()`.
+Tracking does not import Analytics, and the customer response does not wait for
+Analytics latency or persistence.
 
 ## End-to-end flow A — Customer Repair Request
 
@@ -163,10 +178,13 @@ restricted projection query
   ↓
 PublicRepairView
   ↓
-Customer sees Provider + device + status + Customer Updates
+/track action schedules Analytics with after()
+  ├── response: Customer sees Provider + device + status + Customer Updates
+  └── post-response: best-effort successful-view observation
 ```
 
-The customer does not authenticate and does not receive Provider-private data.
+The customer does not authenticate and does not receive Provider-private or
+analytics data. Malformed and unknown Tracking Codes do not create telemetry.
 
 ## Dashboard composition
 
@@ -192,7 +210,8 @@ Do not duplicate the underlying rules in the dashboard route. It should call fea
 6. `Reported Problem` and `Diagnosis` remain distinct.
 7. Repair status history and Customer Updates remain distinct concepts.
 8. Tracking exposes a restricted projection, not internal Repair data.
-9. Analytics must not become an availability dependency for normal repair management.
+9. Analytics must not become an availability or latency dependency for public
+   Tracking or normal repair management.
 10. Removing a Provider Service Mode does not erase historical Repair
     arrangements; intentional Repair mode changes require current support at
     commit time.

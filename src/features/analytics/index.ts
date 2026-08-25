@@ -1,0 +1,1 @@
+export { recordSuccessfulTrackingView } from "./commands";

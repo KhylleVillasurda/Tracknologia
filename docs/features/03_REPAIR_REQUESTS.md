@@ -244,7 +244,10 @@ A Request Reference is not a Tracking Code. Public Repair tracking begins only a
 
 ### Analytics
 
-May record submitted/accepted/declined events and Request-origin conversion metrics.
+Submitted, accepted, and declined counts, conversion, and decision time are
+derived from committed `repair_requests` state and timestamps. Feature 06 does
+not duplicate these outcomes into an event stream, so rejected or rolled-back
+operations cannot create contradictory analytics records.
 
 ## Important invariants
 

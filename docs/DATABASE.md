@@ -19,11 +19,12 @@ repair_requests
 repairs
 repair_status_events
 repair_updates
+
+Validation telemetry:
+tracking_events
 ```
 
 Authentication identities live in Supabase-managed `auth.users`.
-
-A `tracking_events` table may be added for pilot analytics when required.
 
 ---
 
@@ -46,7 +47,8 @@ auth.users
     │                             └──< repairs <───┘
     │                                     │
     │                                     ├──< repair_status_events
-    │                                     └──< repair_updates
+    │                                     ├──< repair_updates
+    │                                     └──< tracking_events
 ```
 
 ---
@@ -178,6 +180,21 @@ nonblank and at most 2,000 characters. RLS derives ownership through the parent
 Repair; authenticated roles have no update/delete privilege and anonymous roles
 have no raw access.
 
+### 11. `tracking_events`
+
+Minimal internal validation telemetry for successful public Tracking views.
+
+- `id` (uuid, PK)
+- `repair_id` (uuid, FK $\to$ `repairs.id`, cascading delete)
+- `viewed_at` (timestamptz, server default)
+- `(repair_id, viewed_at DESC)` index supports total, distinct-Repair adoption,
+  and repeat-view queries
+- anonymous and authenticated roles have no direct table privileges or RLS
+  policies
+- service-role/internal reporting may read the table
+- no Tracking Code, customer/Provider snapshot, contact, network, browser,
+  fingerprint, Auth, or arbitrary metadata is stored
+
 ### Public Tracking projection
 
 `lookup_public_repair(text)` is a read-only `SECURITY DEFINER` function rather
@@ -188,6 +205,13 @@ Update message/timestamp objects. It intentionally excludes customer identity,
 contact data, private technical fields, Ticket Number, credentials, internal
 ids, actors, and audit history. The existing globally unique
 `repairs.tracking_code` index supports the lookup.
+
+`record_successful_tracking_view(text)` is a separate `SECURITY DEFINER`
+function used after successful projection validation. It applies the same
+bounded credential normalization, resolves the Repair internally, inserts only
+Repair correlation plus server time, and returns no existence or Repair data.
+Analytics failure is handled by the application and does not invalidate a
+successful public lookup.
 
 ---
 
@@ -245,6 +269,10 @@ npx supabase db push
 - **Restricted public read function**: `lookup_public_repair(tracking_code)`
   returns the fixed customer-safe Repair projection and latest 25 Customer
   Updates without granting raw table access.
+- **Restricted public observation function**:
+  `record_successful_tracking_view(tracking_code)` returns no data and writes
+  only minimal internal telemetry for an existing Repair without granting raw
+  `tracking_events` access.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
   SET search_path = public, pg_temp;

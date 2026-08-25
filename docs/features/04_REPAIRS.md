@@ -286,7 +286,10 @@ Tracking consumes a restricted public projection of Repair, Provider identity, a
 
 ### Analytics
 
-Important events include Repair created, origin, status changed, and completed.
+Repair creation/origin and completion metrics are derived from `repairs`;
+status-maintenance and READY-history metrics are derived from
+`repair_status_events`. Feature 06 does not duplicate this authoritative state
+into a generic analytics event stream.
 
 ## Important invariants
 

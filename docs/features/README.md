@@ -16,7 +16,7 @@ The repository uses `src/features/` as the physical directory name, while each f
 | [Repair Requests](03_REPAIR_REQUESTS.md)     | Capture customer pre-repair intake for one Provider        | Customer, Provider User               | May create exactly one Repair when accepted                                |
 | [Repairs](04_REPAIRS.md)                     | Manage the authoritative repair record and lifecycle       | Provider User                         | Central operational feature consumed by Tracking and observed by Analytics |
 | [Tracking](05_TRACKING.md)                   | Give Customers safe accountless repair visibility          | Customer                              | Reads a restricted public projection of Repair data                        |
-| [Analytics / Pilot Metrics](06_ANALYTICS.md) | Measure whether the MVP is producing the intended behavior | Product/team                          | Observes important events without becoming a domain dependency             |
+| [Analytics / Pilot Metrics](06_ANALYTICS.md) | Measure whether the MVP is producing the intended behavior | Product/team                          | Derives domain metrics and records successful Tracking views best-effort   |
 
 See [00_FEATURE_INTEGRATION_MAP.md](00_FEATURE_INTEGRATION_MAP.md) for end-to-end interaction flows and dependency rules.
 

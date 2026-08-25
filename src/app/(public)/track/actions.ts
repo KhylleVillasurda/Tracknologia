@@ -1,5 +1,8 @@
 "use server";
 
+import { after } from "next/server";
+
+import { recordSuccessfulTrackingView } from "@/features/analytics";
 import {
   lookupRepairByTrackingCode,
   type PublicRepairView,
@@ -16,7 +19,8 @@ export async function trackRepairAction(
   formData: FormData,
 ): Promise<TrackRepairActionState> {
   try {
-    const view = await lookupRepairByTrackingCode(formData.get("trackingCode"));
+    const trackingCode = formData.get("trackingCode");
+    const view = await lookupRepairByTrackingCode(trackingCode);
 
     if (!view) {
       return {
@@ -24,6 +28,10 @@ export async function trackRepairAction(
         message:
           "Repair could not be found. Check Tracking Code and try again.",
       };
+    }
+
+    if (typeof trackingCode === "string") {
+      after(() => recordSuccessfulTrackingView(trackingCode));
     }
 
     return { outcome: "found", view };

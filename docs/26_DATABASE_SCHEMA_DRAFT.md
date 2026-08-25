@@ -31,7 +31,7 @@ Tracknologia core:
   repair_status_events
   repair_updates
 
-Optional validation telemetry:
+Validation telemetry:
   tracking_events
 ```
 
@@ -52,7 +52,8 @@ auth.users
     │                             └──< repairs <───┘
     │                                     │
     │                                     ├──< repair_status_events
-    │                                     └──< repair_updates
+    │                                     ├──< repair_updates
+    │                                     └──< tracking_events
 ```
 
 ## Key database invariants
@@ -136,6 +137,22 @@ authenticated author default, cascading Repair foreign key, and stable history
 index. Provider members may append/read their Provider's updates but cannot
 edit/delete them; anonymous roles have no raw access.
 
+### Tracking validation telemetry
+
+`tracking_events` records one row per successful public Tracking observation:
+
+```text
+id          uuid PK
+repair_id   uuid FK -> repairs.id ON DELETE CASCADE
+viewed_at   timestamptz default now()
+```
+
+`(repair_id, viewed_at DESC)` supports adoption/repeat-view pilot queries. The
+table has RLS enabled and no anonymous/authenticated direct privileges or
+policies. `record_successful_tracking_view(text)` bounds and normalizes the
+credential, resolves an existing Repair internally, inserts no personal or
+credential data, and returns no existence detail.
+
 ### Repair Service Mode snapshot integrity
 
 `repairs.service_mode` is a historical snapshot, not a permanent foreign key to
@@ -174,9 +191,15 @@ Customer and device details are captured on Repair/Request because Tracknologia 
 
 Provider-owned tables check current `auth.uid()` membership.
 
-Child rows (`repair_status_events`, `repair_updates`) derive authorization through `repairs.provider_id`.
+Child domain rows (`repair_status_events`, `repair_updates`) derive authorization
+through `repairs.provider_id`. `tracking_events` is internal validation
+telemetry; Provider members and anonymous callers have no direct table access.
 
 Public Repair Request insertion and public Tracking lookup use intentionally limited policies and restricted server interfaces.
+
+The successful-view observation function is a second narrow public execution
+surface, not a read surface. It returns no Repair data and does not grant table
+access.
 
 Feature 03 implements public submission through `submit_repair_request` only;
 anonymous roles have no direct Request/Repair/history table privileges.
