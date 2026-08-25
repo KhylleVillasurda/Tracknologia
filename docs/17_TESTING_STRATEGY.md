@@ -180,12 +180,18 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - completion timestamp consistency and reopening denial;
 - same-Repair transition concurrency under row locking;
 - append-only Customer Update permissions and status independence.
-- anonymous public Tracking RPC returns the exact allow-listed projection;
+- service-role Tracking RPC returns the exact allow-listed projection;
 - malformed/unknown Tracking Codes reveal the same empty database result;
 - public Tracking returns the latest 25 Update message/timestamp pairs only;
 - direct and Request-origin Repairs share the same public behavior;
 - existing Repair Tracking survives Provider Request closure;
 - anonymous raw Repair, Update, and Status Event reads remain denied.
+- anonymous and authenticated direct execution of the public-operation RPCs
+  (`lookup_public_repair`, `record_successful_tracking_view`,
+  `submit_repair_request`, and the abuse-control function) remains denied;
+- concurrent public-operation requests preserve the configured threshold;
+- expired abuse-control windows reset and cleanup stays bounded;
+- persisted abuse-control rows contain no raw identifiers;
 - anonymous and authenticated direct `tracking_events` access remains denied;
 - malformed/unknown telemetry RPC inputs insert nothing and reveal no detail;
 - direct telemetry RPC input over 128 bytes inserts nothing and returns no

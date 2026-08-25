@@ -79,9 +79,13 @@ tooling or a generic analytics stream for the MVP.
 ## Open technical questions
 
 1. Exact Tracking Code format and whether to store raw code or hash.
-2. Exact rate-limiting provider/implementation.
-3. Exact deployment platform.
-4. Whether to introduce Prisma later if persistence ergonomics justify it.
+2. Exact deployment platform.
+3. Whether to introduce Prisma later if persistence ergonomics justify it.
+
+Resolved 2026-08-26: public-operation rate limiting uses durable PostgreSQL
+fixed-window counters in `public_operation_rate_limits`, consumed atomically by
+`check_public_operation_rate_limit(...)` with opaque HMAC actor keys. See
+`docs/SECURITY.md` and Plan 02.
 
 ## Deferred decisions
 
