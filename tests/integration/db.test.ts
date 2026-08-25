@@ -1650,7 +1650,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       expect(anonInsert.error).not.toBeNull();
 
       const unsupported = await submitRepairRequestAs(
-        anonClient,
+        serviceClient,
         provider.slug,
         { p_preferred_service_mode: "HOME_SERVICE" },
       );
@@ -1666,7 +1666,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       );
 
       const unavailable = await submitRepairRequestAs(
-        anonClient,
+        serviceClient,
         provider.slug,
       );
       expect(unavailable.error?.message).toMatch(/PROVIDER_UNAVAILABLE/);
