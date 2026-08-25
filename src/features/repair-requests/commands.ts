@@ -10,6 +10,7 @@ import {
   requestOriginRepairSchema,
 } from "@/features/repairs";
 import { createClient } from "@/lib/supabase/server";
+import { createPublicOperationClient } from "@/lib/supabase/service";
 
 import {
   declineRepairRequestRecord,
@@ -55,7 +56,7 @@ export async function submitRepairRequest(
     );
   }
 
-  const supabase = client ?? (await createClient());
+  const supabase = client ?? (await createPublicOperationClient());
   const provider = await getPublicProvider(slug.data, supabase);
   if (!provider) {
     throw new RepairRequestError(
