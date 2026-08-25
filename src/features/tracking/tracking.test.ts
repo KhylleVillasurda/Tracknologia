@@ -7,13 +7,26 @@ import { lookupRepairByTrackingCode } from "./index";
 
 const TRACKING_CODE = "TRK-0123456789ABCDEF01234567";
 
-function trackingClient(row: Record<string, unknown> | null): {
+function trackingClient(
+  row: Record<string, unknown> | null,
+  analyticsError: { message: string } | null = null,
+): {
   client: SupabaseClient;
   rpc: ReturnType<typeof vi.fn>;
 } {
-  const rpc = vi.fn().mockResolvedValue({
-    data: row ? [row] : [],
-    error: null,
+  const rpc = vi.fn().mockImplementation((functionName: string) => {
+    if (functionName === "lookup_public_repair") {
+      return Promise.resolve({
+        data: row ? [row] : [],
+        error: null,
+      });
+    }
+
+    if (functionName === "record_successful_tracking_view") {
+      return Promise.resolve({ data: null, error: analyticsError });
+    }
+
+    throw new Error(`Unexpected RPC: ${functionName}`);
   });
 
   return {
@@ -53,6 +66,9 @@ describe("Tracking lookup", () => {
     expect(rpc).toHaveBeenCalledWith("lookup_public_repair", {
       p_tracking_code: TRACKING_CODE,
     });
+    expect(rpc).toHaveBeenCalledWith("record_successful_tracking_view", {
+      p_tracking_code: TRACKING_CODE,
+    });
     expect(result).toEqual({
       providerDisplayName: "Jacinth Device Care",
       deviceSummary: "Lenovo IdeaPad 3 · Laptop",
@@ -88,6 +104,7 @@ describe("Tracking lookup", () => {
     await expect(
       lookupRepairByTrackingCode(TRACKING_CODE, unknown.client),
     ).resolves.toBeNull();
+    expect(unknown.rpc).toHaveBeenCalledOnce();
   });
 
   it("rejects oversized raw input before normalization or persistence", async () => {
@@ -174,17 +191,21 @@ describe("Tracking lookup", () => {
   );
 
   it("fails closed when persistence adds an unexpected public field", async () => {
-    const { client } = trackingClient(
+    const { client, rpc } = trackingClient(
       publicProjectionRow({ internal_notes: "Must never be public" }),
     );
 
     await expect(
       lookupRepairByTrackingCode(TRACKING_CODE, client),
     ).rejects.toThrow("Public Tracking projection is invalid");
+    expect(rpc).not.toHaveBeenCalledWith(
+      "record_successful_tracking_view",
+      expect.anything(),
+    );
   });
 
   it("fails closed when persistence returns more than 25 updates", async () => {
-    const { client } = trackingClient(
+    const { client, rpc } = trackingClient(
       publicProjectionRow({
         customer_updates: Array.from({ length: 26 }, (_, index) => ({
           message: `Update ${index + 1}`,
@@ -196,5 +217,33 @@ describe("Tracking lookup", () => {
     await expect(
       lookupRepairByTrackingCode(TRACKING_CODE, client),
     ).rejects.toThrow("Public Tracking projection is invalid");
+    expect(rpc).not.toHaveBeenCalledWith(
+      "record_successful_tracking_view",
+      expect.anything(),
+    );
+  });
+
+  it("returns the public view when Analytics observation fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const { client, rpc } = trackingClient(publicProjectionRow(), {
+      message: "analytics unavailable",
+    });
+
+    await expect(
+      lookupRepairByTrackingCode(TRACKING_CODE, client),
+    ).resolves.toMatchObject({
+      providerDisplayName: "Jacinth Device Care",
+      currentStatus: "IN_PROGRESS",
+    });
+    expect(rpc).toHaveBeenCalledWith("record_successful_tracking_view", {
+      p_tracking_code: TRACKING_CODE,
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "Analytics Tracking-view observation failed",
+    );
+
+    consoleError.mockRestore();
   });
 });

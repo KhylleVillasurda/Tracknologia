@@ -108,6 +108,22 @@ shape, both Repair origins, closed-Provider continuity, Update ordering/cap,
 and activity timestamps extend `tests/integration/db.test.ts` and require
 `20260824030000_add_public_tracking_lookup.sql`.
 
+### Analytics
+
+- successful public Tracking records through the narrow Analytics RPC;
+- malformed, unknown, or invalid public projections record nothing;
+- persistence failure returns `false`, uses a sanitized log, and does not fail
+  a successful Tracking lookup;
+- analytics payloads contain no Repair/customer snapshot or Tracking
+  credential.
+
+Feature-local coverage lives in `src/features/analytics/analytics.test.ts` and
+the Tracking integration cases in `src/features/tracking/tracking.test.ts`.
+Real table grants/RLS, bounded neutral RPC behavior, repeated raw views,
+distinct-Repair adoption, both Repair origins, and stored column shape extend
+`tests/integration/db.test.ts` and require
+`20260825010000_add_tracking_analytics.sql`.
+
 ## Contract tests
 
 Contract tests verify security-sensitive boundaries and stable feature contracts without requiring a live PostgreSQL instance. They complement unit and module tests by checking rules such as token hashing, public/private projection shape, and Provider invariants. They run as part of `pnpm test:run`.
@@ -167,6 +183,12 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - direct and Request-origin Repairs share the same public behavior;
 - existing Repair Tracking survives Provider Request closure;
 - anonymous raw Repair, Update, and Status Event reads remain denied.
+- anonymous and authenticated direct `tracking_events` access remains denied;
+- malformed/unknown telemetry RPC inputs insert nothing and reveal no detail;
+- repeated valid observations create raw views while distinct Repair adoption
+  remains one;
+- direct and Request-origin Repairs can both record successful views;
+- telemetry rows contain only id, Repair correlation, and observation time.
 
 Any security-sensitive database change, including schema, RLS, policy, constraint, trigger, or RPC changes, requires the real PostgreSQL / RLS integration suite before completion.
 

@@ -15,6 +15,12 @@ query parameters or browser history. The action passes untrusted FormData to
 neutral not-found result, while infrastructure failure becomes a generic
 temporary-unavailable state.
 
+After a successful projection is validated, the Tracking Module attempts one
+best-effort Analytics observation. Observation failure is sanitized and does
+not replace the successful response. Malformed/unknown lookups record nothing.
+There is no separate public analytics route or browser-visible analytics
+payload.
+
 The rendered result contains Provider display name, safe device summary,
 customer-facing status meaning, Service Mode label, READY handover guidance,
 computed last activity time, and at most 25 message/timestamp-only Customer

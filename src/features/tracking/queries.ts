@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ServiceMode } from "@/features/providers";
 import type { RepairStatus } from "@/features/repairs";
+import { recordSuccessfulTrackingView } from "@/features/analytics";
 import { createClient } from "@/lib/supabase/server";
 
 import { lookupPublicRepairRecord } from "./persistence";
@@ -94,7 +95,7 @@ export async function lookupRepairByTrackingCode(
 
   const status = STATUS_PRESENTATION[record.current_status];
 
-  return {
+  const publicView: PublicRepairView = {
     providerDisplayName: record.provider_display_name,
     deviceSummary: composeDeviceSummary(
       record.device_type,
@@ -118,4 +119,8 @@ export async function lookupRepairByTrackingCode(
       createdAt: update.created_at,
     })),
   };
+
+  await recordSuccessfulTrackingView(parsedCode.data, supabase);
+
+  return publicView;
 }

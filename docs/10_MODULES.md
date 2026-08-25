@@ -180,9 +180,20 @@ tracking credentials, database/auth ids, Update authors, and audit history.
 
 **Location:** `src/features/analytics/`
 
-This is intentionally small and can initially delegate to an external analytics event stream or an optional `tracking_events` table.
+### Responsibility
 
-Measures only what is needed to validate the MVP hypothesis.
+Measure only what is needed to validate the MVP hypothesis without duplicating
+authoritative domain state or becoming an availability dependency.
+
+```ts
+recordSuccessfulTrackingView(trackingCode): Promise<boolean>
+```
+
+The Module hides the narrow Supabase RPC and converts persistence failure into
+a sanitized `false` result. Tracking calls it only after a successful restricted
+projection. `tracking_events` stores only Repair correlation and observation
+time. Provider, Request, Repair, status, origin, and completion metrics are
+derived directly from their owning tables.
 
 ## Suggested internal feature layout
 

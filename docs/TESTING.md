@@ -16,6 +16,9 @@ High-value examples:
 - declined Request creates no Repair;
 - `COMPLETED` Repair rejects unsupported transitions;
 - public tracking projection excludes private fields.
+- successful Tracking records one minimal analytics observation;
+- Analytics failure does not fail a successful Tracking lookup or log the
+  credential/database detail.
 
 ### Component tests — React Testing Library
 
@@ -54,3 +57,9 @@ In CI, the database job pins the Supabase CLI, overrides only the generated
 database port to `55432` to avoid runner collisions, retries startup once after
 cleaning stale local Supabase state, and always stops the stack. This does not
 change the normal local Supabase ports.
+
+Feature 06 database coverage verifies `tracking_events` direct-access denial,
+bounded neutral observation input, exact stored column shape, repeated raw
+views versus distinct-Repair adoption, and both Repair origins. Apply
+`20260825010000_add_tracking_analytics.sql` through a fresh reset before running
+that coverage.

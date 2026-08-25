@@ -56,55 +56,61 @@ The MVP Analytics feature does not require:
 
 This is not primarily a Provider-facing feature in the MVP.
 
-## Implementation options
+## Implemented strategy
 
-The feature may initially use either:
+Feature 06 avoids a duplicated general-purpose event stream. Provider, Request,
+Repair, lifecycle, origin, and completion measurements are derived from their
+authoritative tables. Only successful public Tracking views need dedicated
+storage because no domain table otherwise retains that observation.
 
-1. an external analytics event stream; or
-2. an optional small `tracking_events`/event table.
+`tracking_events` therefore contains only:
 
-Do not create a large analytics data model before validation needs justify it.
+```text
+id
+repair_id
+viewed_at
+```
+
+The Tracking Code is used transiently by a narrow database function to resolve
+the Repair and is never stored in telemetry.
 
 ## Conceptual Interface
 
-Keep it minimal, for example:
-
 ```ts
-recordEvent(event): void | Promise<void>
+recordSuccessfulTrackingView(trackingCode): Promise<boolean>
 ```
 
-or feature-specific helpers only when they add clarity.
-
-Avoid making every domain Module understand analytics persistence details.
+`true` means the observation was recorded; `false` means analytics was
+unavailable. The operation never throws into Tracking. No generic `recordEvent`
+abstraction is introduced for one retained event type.
 
 ## Event design principles
 
-An event should identify:
-
-- event name;
-- timestamp;
-- safe correlation identifiers when necessary;
-- minimal dimensions required for the validation question.
-
-Avoid copying entire Repair/Customer objects into analytics payloads.
+The successful-view record identifies only the internal Repair and observation
+time. It excludes the Tracking Code, customer/provider snapshots, contact
+information, IP address, user agent, cookies, device fingerprints, Auth ids,
+tokens, and arbitrary metadata.
 
 ## Relationship with other features
 
 ### Providers
 
-May emit Provider-created/registered event.
+Provider creation metrics come from committed `providers` rows.
 
 ### Repair Requests
 
-May emit submitted/accepted/declined events and timing information.
+Submission, decision, conversion, and timing metrics come from committed
+`repair_requests` rows and timestamps.
 
 ### Repairs
 
-May emit created/status-changed/completed events and origin.
+Creation, origin, and completion metrics come from `repairs`; lifecycle metrics
+come from `repair_status_events`.
 
 ### Tracking
 
-May emit customer-tracking-viewed event.
+After validating a successful public projection, Tracking attempts
+`recordSuccessfulTrackingView`. Failed or not-found lookups record nothing.
 
 ### Auth
 
@@ -112,7 +118,8 @@ Analytics does not replace audit/authorization logging and should not receive se
 
 ## Availability rule
 
-Core business operations should not normally fail only because analytics recording fails.
+Core business operations and public Tracking do not fail only because analytics
+recording fails.
 
 Preferred mental model:
 
@@ -122,7 +129,9 @@ Durable domain operation succeeds
 Analytics observation attempted
 ```
 
-If analytics is implemented transactionally in the same database for validation accuracy, document the trade-off explicitly. Do not accidentally couple availability without deciding to.
+Tracking awaits the observation attempt so a successful write is trustworthy,
+but the Analytics Interface catches persistence failure, logs a constant
+sanitized message, and returns `false`. The public view remains available.
 
 ## Privacy/data-minimization requirements
 
@@ -131,6 +140,8 @@ If analytics is implemented transactionally in the same database for validation 
 - Prefer internal correlation ids over personal data.
 - Do not expose analytics data to public Tracking.
 - Treat analytics as measurement, not a substitute for domain/audit state.
+- Do not claim that repeated views represent distinct Customers; the MVP does
+  not use identity tracking or fingerprinting.
 
 ## UI
 
@@ -179,12 +190,34 @@ Do not treat repeated refreshes by one Customer as equivalent to many Customers 
 
 Test where analytics implementation is code-owned:
 
-- correct event emitted for successful domain action;
-- event not emitted for rejected/failed action when semantics require success;
-- no secret/private fields in payloads;
-- analytics failure does not incorrectly report domain failure when configured as best-effort;
-- event names/dimensions remain stable enough for pilot queries.
+- successful Tracking projection records one view;
+- malformed, unknown, failed, or rejected projections record nothing;
+- repeated successful views remain distinct raw observations but one adopted
+  Repair;
+- direct and Request-origin Repairs use the same observation path;
+- no secret/private fields or Tracking credential enter stored rows or logs;
+- Analytics failure does not change the successful public Tracking result;
+- anonymous and authenticated callers cannot read or write the telemetry table
+  directly.
+
+## Implemented baseline
+
+Feature 06 is implemented through:
+
+- `src/features/analytics/` for the narrow best-effort Interface and server-only
+  persistence adapter;
+- `20260825010000_add_tracking_analytics.sql` for `tracking_events`, its index,
+  RLS/grants, and the bounded `record_successful_tracking_view` function;
+- the existing Tracking Module, which observes only validated successful
+  lookups;
+- authoritative-table pilot queries documented in
+  `docs/16_VALIDATION_AND_ANALYTICS.md`;
+- feature-local tests plus real PostgreSQL permission, input, origin, repeat-
+  view, and data-minimization coverage.
 
 ## Definition of done
 
-The feature is healthy when the team can answer the MVP validation questions with minimal trustworthy instrumentation and without analytics complexity distorting the product architecture.
+The feature is healthy when the team can answer the MVP validation questions
+from authoritative domain rows plus minimal successful-view telemetry, without
+analytics complexity distorting the product architecture or public Tracking
+availability.

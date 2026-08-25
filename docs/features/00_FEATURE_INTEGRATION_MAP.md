@@ -24,10 +24,16 @@ This document explains how Tracknologia's feature Modules cooperate without beco
                                                   ▼
                                           ┌─────────────────┐
                                           │    Tracking     │
+                                          └────────┬────────┘
+                                                   │ successful lookup
+                                                   ▼
+                                          ┌─────────────────┐
+                                          │    Analytics    │
                                           └─────────────────┘
 
-Analytics observes meaningful events from the system but should not become
-required for core domain operations to succeed.
+Analytics derives domain metrics from authoritative Provider, Request, Repair,
+and Status Event rows. It stores only successful Tracking views and must not
+become required for public lookup or core domain operations to succeed.
 ```
 
 ## Dependency principles
@@ -66,7 +72,11 @@ Tracking never returns a raw `Repair` row and never mutates a Repair.
 
 ### Analytics
 
-Analytics receives or records events after meaningful behavior occurs. Core features should not become unavailable merely because analytics collection fails.
+Analytics derives Provider creation, Request conversion, Repair origin,
+lifecycle, and completion metrics from existing durable domain rows. Tracking
+attempts one best-effort `recordSuccessfulTrackingView` call only after a
+customer-safe lookup succeeds. Analytics storage failure does not replace the
+successful Tracking result with an error.
 
 ## End-to-end flow A — Customer Repair Request
 
@@ -164,9 +174,12 @@ restricted projection query
 PublicRepairView
   ↓
 Customer sees Provider + device + status + Customer Updates
+  ↓
+Analytics: best-effort successful-view observation
 ```
 
-The customer does not authenticate and does not receive Provider-private data.
+The customer does not authenticate and does not receive Provider-private or
+analytics data. Malformed and unknown Tracking Codes do not create telemetry.
 
 ## Dashboard composition
 

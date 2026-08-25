@@ -142,7 +142,11 @@ No Provider authentication is required for normal customer lookup.
 
 ### Analytics
 
-A successful or attempted tracking view may be measured to validate customer usage. Avoid collecting unnecessary personal information.
+After a successful public projection is validated, Tracking asks Analytics to
+record one successful view. Malformed, unknown, failed, or invalid-projection
+lookups record nothing. Analytics failure is sanitized and does not replace a
+successful customer result. Only the resolved Repair id and observation time
+are persisted; the Tracking Code and customer information are not stored.
 
 ## Security requirements
 
@@ -235,10 +239,13 @@ Feature 05 is implemented through:
   every status meaning, update bounds, and READY wording;
 - real PostgreSQL integration coverage for anonymous lookup, both Repair
   origins, closed-Provider continuity, raw-table denial, and field exclusion.
+- a best-effort Feature 06 observation after successful projection validation;
+  analytics failure does not change the public Tracking result.
 
 The lookup function returns only named public columns and nested Update
 message/timestamp pairs. Anonymous callers retain no direct table access.
-Tracking analytics remains Feature 06 and is not an availability dependency.
+Successful-view analytics is owned by Feature 06 and is not an availability
+dependency.
 
 ## Definition of done
 

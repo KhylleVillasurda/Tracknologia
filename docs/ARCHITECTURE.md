@@ -97,6 +97,21 @@ Public tracking is a distinct feature even though it reads Repair data.
 
 It exposes a restricted `PublicRepairView` rather than the full Repair representation. This gives the interface a security role as well as a design role.
 
+## Analytics / pilot metrics
+
+Analytics derives Provider, Request, Repair, origin, lifecycle, and completion
+metrics from authoritative domain tables. Tracking calls the Analytics Module
+only after a public projection succeeds:
+
+```text
+Tracking -> Analytics -> Supabase/PostgreSQL
+```
+
+The Analytics Interface hides best-effort persistence for minimal successful-
+view telemetry. Analytics failure does not reverse the dependency or make
+Tracking/domain operations unavailable. No dashboard, broad event platform, or
+external analytics dependency is part of the MVP architecture.
+
 ## Future native mobile
 
 A native mobile client is deferred. If validated later, stable HTTP Route Handlers or a separate backend can adapt to the same business rules. Do not build a broad REST layer solely for hypothetical future mobile use.

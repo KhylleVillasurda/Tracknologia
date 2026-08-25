@@ -235,8 +235,26 @@ Never expose:
 
 Apply durable rate limiting before broad public exposure. It must protect the
 direct Supabase RPC as well as the Next.js page; a process-memory limiter at the
-web route alone is insufficient. Analytics remains optional and must not make
-lookup availability depend on Feature 06.
+web route alone is insufficient. Analytics failure must not make lookup
+availability depend on Feature 06.
+
+## Analytics telemetry
+
+`tracking_events` is not public Tracking output and is not Provider-facing.
+Anonymous and authenticated roles have no direct SELECT/INSERT/UPDATE/DELETE
+privileges or RLS policies on it. Service-role/internal reporting access remains
+server-side.
+
+The public `record_successful_tracking_view(text)` function is intentionally
+narrow: it bounds and normalizes the credential, resolves a real Repair
+internally, inserts only `repair_id` plus server time, and returns no Repair or
+existence detail. It fixes `search_path` as a `SECURITY DEFINER` function.
+
+Telemetry never stores or logs customer identity/contact, Provider snapshots,
+the Tracking Code, IP addresses, user agents, cookies, fingerprints, Auth ids,
+tokens, or arbitrary metadata. Repeated views are raw observations, not unique
+Customer identities. The same durable public abuse controls required for
+Tracking must cover the observation RPC before broad production exposure.
 
 ## Secrets
 
@@ -272,6 +290,12 @@ Browser-safe public/publishable configuration is distinct from privileged server
 - Tracking returns at most 25 message/timestamp-only Customer Updates;
 - direct and Request-origin Repairs expose the same projection;
 - disabling new Repair Requests does not disable an existing Repair's Tracking;
+- anonymous/authenticated roles cannot access `tracking_events` directly;
+- malformed and unknown Tracking Codes create no telemetry;
+- stored Tracking telemetry contains only Repair correlation and observation
+  time;
+- Analytics failure leaves a successful public Tracking result available and
+  logs no credential or private database detail;
 - repeated Request acceptance cannot create duplicate Repairs.
 - concurrent accept/decline decisions serialize to one terminal outcome.
 - anonymous callers cannot read Request/contact data or create Repairs directly.
