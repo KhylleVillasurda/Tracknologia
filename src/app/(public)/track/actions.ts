@@ -7,7 +7,7 @@ import {
   lookupRepairByTrackingCode,
   type PublicRepairView,
 } from "@/features/tracking";
-import { checkRateLimit, resolveClientIdentifier } from "@/lib/rate-limit";
+import { checkClientRateLimit } from "@/lib/rate-limit";
 
 export type TrackRepairActionState =
   | { outcome: "found"; view: PublicRepairView }
@@ -20,10 +20,7 @@ export async function trackRepairAction(
   formData: FormData,
 ): Promise<TrackRepairActionState> {
   try {
-    const limit = checkRateLimit(
-      "tracking_lookup",
-      await resolveClientIdentifier(),
-    );
+    const limit = await checkClientRateLimit("tracking_lookup");
 
     if (!limit.allowed) {
       return {
@@ -49,7 +46,8 @@ export async function trackRepairAction(
     }
 
     return { outcome: "found", view };
-  } catch {
+  } catch (error) {
+    console.error("Tracking lookup failed", error);
     return {
       outcome: "unavailable",
       message: "Tracking is temporarily unavailable. Please try again later.",

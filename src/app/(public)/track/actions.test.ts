@@ -3,22 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
-  headers: vi.fn(),
   lookupRepairByTrackingCode: vi.fn(),
   recordSuccessfulTrackingView: vi.fn(),
+  checkRateLimit: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({ after: mocks.after }));
-vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("@/features/analytics", () => ({
   recordSuccessfulTrackingView: mocks.recordSuccessfulTrackingView,
 }));
 vi.mock("@/features/tracking", () => ({
   lookupRepairByTrackingCode: mocks.lookupRepairByTrackingCode,
 }));
+vi.mock("@/lib/rate-limit", () => ({
+  checkClientRateLimit: mocks.checkRateLimit,
+}));
 
 import { trackRepairAction } from "./actions";
-import { resetRateLimits } from "@/lib/rate-limit";
 
 const TRACKING_CODE = "  trk-0123456789abcdef01234567  ";
 const NORMALIZED_TRACKING_CODE = "TRK-0123456789ABCDEF01234567";
@@ -44,8 +45,10 @@ function trackingFormData() {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  resetRateLimits();
-  mocks.headers.mockResolvedValue({ get: () => null });
+  mocks.checkRateLimit.mockResolvedValue({
+    allowed: true,
+    retryAfterSeconds: 0,
+  });
 });
 
 describe("trackRepairAction", () => {
@@ -93,5 +96,18 @@ describe("trackRepairAction", () => {
     ).resolves.toMatchObject({ outcome: "unavailable" });
     expect(mocks.after).not.toHaveBeenCalled();
     expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
+  });
+
+  it("maps a durable limit to a user-safe unavailable response", async () => {
+    mocks.checkRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 30,
+    });
+
+    await expect(
+      trackRepairAction(null, trackingFormData()),
+    ).resolves.toMatchObject({ outcome: "unavailable" });
+    expect(mocks.lookupRepairByTrackingCode).not.toHaveBeenCalled();
+    expect(mocks.after).not.toHaveBeenCalled();
   });
 });
