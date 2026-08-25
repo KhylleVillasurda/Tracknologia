@@ -1,76 +1,182 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { checkRateLimit, rateLimitConfig, resetRateLimits } from "./rate-limit";
+const mocks = vi.hoisted(() => ({
+  createPublicOperationClient: vi.fn(),
+  headers: vi.fn(),
+  rpc: vi.fn(),
+}));
 
-describe("checkRateLimit", () => {
-  it("allows requests within the configured threshold", () => {
-    resetRateLimits();
-    const max = rateLimitConfig.tracking_lookup.max;
+vi.mock("next/headers", () => ({ headers: mocks.headers }));
+vi.mock("@/lib/supabase/service", () => ({
+  createPublicOperationClient: mocks.createPublicOperationClient,
+}));
 
-    for (let i = 0; i < max; i += 1) {
-      const result = checkRateLimit("tracking_lookup", "203.0.113.10");
-      expect(result.allowed).toBe(true);
-    }
+import {
+  checkRateLimit,
+  createRateLimitActorKey,
+  getRateLimitConfig,
+  resolveClientIdentifier,
+} from "./rate-limit";
+
+const SECRET = "test-only-secret-with-at-least-32-characters";
+const PROXY_SECRET = "test-only-proxy-proof-with-at-least-32-characters";
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  process.env.PUBLIC_ABUSE_HMAC_SECRET = SECRET;
+  delete process.env.PUBLIC_ABUSE_SHARED_DEV_BUCKET;
+  delete process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET;
+  delete process.env.PUBLIC_ABUSE_TRACKING_LOOKUP_MAX;
+  delete process.env.PUBLIC_ABUSE_TRACKING_LOOKUP_WINDOW_SECONDS;
+  delete process.env.PUBLIC_ABUSE_REPAIR_REQUEST_MAX;
+  delete process.env.PUBLIC_ABUSE_REPAIR_REQUEST_WINDOW_SECONDS;
+  mocks.createPublicOperationClient.mockResolvedValue({ rpc: mocks.rpc });
+});
+
+describe("durable public-operation abuse control", () => {
+  it("uses validated server-side defaults", () => {
+    expect(getRateLimitConfig().operations).toEqual({
+      tracking_lookup: { max: 30, windowSeconds: 60 },
+      repair_request_submit: { max: 5, windowSeconds: 600 },
+    });
   });
 
-  it("blocks the request that exceeds the threshold", () => {
-    resetRateLimits();
-    const max = rateLimitConfig.tracking_lookup.max;
+  it("rejects a missing or weak keyed-digest secret", () => {
+    delete process.env.PUBLIC_ABUSE_HMAC_SECRET;
+    expect(() => getRateLimitConfig()).toThrow();
 
-    for (let i = 0; i < max; i += 1) {
-      checkRateLimit("tracking_lookup", "203.0.113.20");
-    }
-
-    const result = checkRateLimit("tracking_lookup", "203.0.113.20");
-    expect(result.allowed).toBe(false);
-    expect(result.retryAfterSeconds).toBeGreaterThan(0);
+    process.env.PUBLIC_ABUSE_HMAC_SECRET = "too-short";
+    expect(() => getRateLimitConfig()).toThrow();
   });
 
-  it("allows again after the window elapses", () => {
-    resetRateLimits();
-    const start = Date.now();
-    const max = rateLimitConfig.repair_request_submit.max;
+  it("accepts bounded threshold overrides and rejects invalid values", () => {
+    process.env.PUBLIC_ABUSE_TRACKING_LOOKUP_MAX = "12";
+    process.env.PUBLIC_ABUSE_TRACKING_LOOKUP_WINDOW_SECONDS = "45";
+    expect(getRateLimitConfig().operations.tracking_lookup).toEqual({
+      max: 12,
+      windowSeconds: 45,
+    });
 
-    for (let i = 0; i < max; i += 1) {
-      checkRateLimit("repair_request_submit", "198.51.100.5", start);
-    }
-    expect(
-      checkRateLimit("repair_request_submit", "198.51.100.5", start).allowed,
-    ).toBe(false);
+    process.env.PUBLIC_ABUSE_TRACKING_LOOKUP_MAX = "0";
+    expect(() => getRateLimitConfig()).toThrow();
+  });
 
-    const afterWindow =
-      start + rateLimitConfig.repair_request_submit.windowMs + 1;
-    const result = checkRateLimit(
-      "repair_request_submit",
-      "198.51.100.5",
-      afterWindow,
+  it("persists only an opaque HMAC actor key through the atomic RPC", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [{ allowed: true, retry_after_seconds: 0 }],
+      error: null,
+    });
+
+    await expect(
+      checkRateLimit("tracking_lookup", "203.0.113.10"),
+    ).resolves.toEqual({ allowed: true, retryAfterSeconds: 0 });
+
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "check_public_operation_rate_limit",
+      expect.objectContaining({
+        p_operation: "tracking_lookup",
+        p_actor_key: expect.stringMatching(/^[0-9a-f]{64}$/),
+        p_window_seconds: 60,
+        p_max_requests: 30,
+        p_cleanup_limit: 100,
+      }),
     );
-    expect(result.allowed).toBe(true);
+    expect(JSON.stringify(mocks.rpc.mock.calls)).not.toContain("203.0.113.10");
   });
 
-  it("isolates operations so one exhausted limit does not affect another", () => {
-    resetRateLimits();
-    const max = rateLimitConfig.tracking_lookup.max;
-
-    for (let i = 0; i < max; i += 1) {
-      checkRateLimit("tracking_lookup", "192.0.2.9");
-    }
-    expect(checkRateLimit("tracking_lookup", "192.0.2.9").allowed).toBe(false);
-
-    expect(checkRateLimit("repair_request_submit", "192.0.2.9").allowed).toBe(
-      true,
+  it("uses a keyed digest rather than a reproducible unkeyed hash", () => {
+    const identifier = "198.51.100.5";
+    expect(createRateLimitActorKey(identifier, SECRET)).not.toBe(
+      createRateLimitActorKey(identifier, `${SECRET}-different`),
     );
   });
 
-  it("isolates identifiers so one limited client does not affect another", () => {
-    resetRateLimits();
-    const max = rateLimitConfig.tracking_lookup.max;
+  it("returns a durable denial and fails closed when control is unavailable", async () => {
+    mocks.rpc.mockResolvedValueOnce({
+      data: [{ allowed: false, retry_after_seconds: 42 }],
+      error: null,
+    });
+    await expect(
+      checkRateLimit("repair_request_submit", "198.51.100.5"),
+    ).resolves.toEqual({ allowed: false, retryAfterSeconds: 42 });
 
-    for (let i = 0; i < max; i += 1) {
-      checkRateLimit("tracking_lookup", "192.0.2.50");
-    }
-    expect(checkRateLimit("tracking_lookup", "192.0.2.50").allowed).toBe(false);
+    mocks.rpc.mockResolvedValueOnce({
+      data: null,
+      error: new Error("database unavailable"),
+    });
+    await expect(
+      checkRateLimit("repair_request_submit", "198.51.100.5"),
+    ).rejects.toThrow("abuse control is unavailable");
+  });
 
-    expect(checkRateLimit("tracking_lookup", "192.0.2.51").allowed).toBe(true);
+  it("accepts a client IP only from a proven trusted ingress", async () => {
+    process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET = PROXY_SECRET;
+    mocks.headers.mockResolvedValue({
+      get: (name: string) => {
+        if (name === "x-tracknologia-proxy-secret") return PROXY_SECRET;
+        if (name === "x-tracknologia-client-ip") return "203.0.113.10";
+        return null;
+      },
+    });
+    await expect(resolveClientIdentifier()).resolves.toBe("203.0.113.10");
+  });
+
+  it("rejects missing, spoofed, or invalid ingress metadata", async () => {
+    await expect(resolveClientIdentifier()).rejects.toThrow(
+      "trusted ingress is not configured",
+    );
+
+    process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET = PROXY_SECRET;
+    mocks.headers.mockResolvedValue({
+      get: (name: string) =>
+        name === "x-tracknologia-client-ip" ? "203.0.113.10" : null,
+    });
+    await expect(resolveClientIdentifier()).rejects.toThrow(
+      "trusted ingress verification failed",
+    );
+
+    mocks.headers.mockResolvedValue({
+      get: (name: string) => {
+        if (name === "x-tracknologia-proxy-secret") return "attacker-value";
+        if (name === "x-tracknologia-client-ip") return "203.0.113.10";
+        return null;
+      },
+    });
+    await expect(resolveClientIdentifier()).rejects.toThrow(
+      "trusted ingress verification failed",
+    );
+
+    mocks.headers.mockResolvedValue({
+      get: (name: string) => {
+        if (name === "x-tracknologia-proxy-secret") return PROXY_SECRET;
+        if (name === "x-tracknologia-client-ip") return "not-an-ip";
+        return null;
+      },
+    });
+    await expect(resolveClientIdentifier()).rejects.toThrow(
+      "trusted ingress metadata is invalid",
+    );
+  });
+
+  it("shares one bucket only through the explicit local opt-in and ignores spoofable forwarding headers", async () => {
+    process.env.PUBLIC_ABUSE_SHARED_DEV_BUCKET = "true";
+    mocks.headers.mockResolvedValue({
+      get: vi.fn().mockReturnValue("198.51.100.99"),
+    });
+
+    await expect(resolveClientIdentifier()).resolves.toBe(
+      "local-development-shared",
+    );
+    expect(mocks.headers).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without ingress proof unless the local shared bucket is opted in", async () => {
+    mocks.headers.mockResolvedValue({
+      get: vi.fn().mockReturnValue("198.51.100.99"),
+    });
+
+    await expect(resolveClientIdentifier()).rejects.toThrow(
+      "trusted ingress is not configured",
+    );
   });
 });
