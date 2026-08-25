@@ -239,10 +239,54 @@ async function readRepairRequestOutcome(
 describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", () => {
   let adminClient: SupabaseClient;
   let anonClient: SupabaseClient;
+  // The application identity for public operations: after
+  // 20260825120000_restrict_public_rpc_grants.sql, the anon role can no
+  // longer execute the public operation functions; the app server uses the
+  // service-role credential (src/lib/supabase/service.ts).
+  let serviceClient: SupabaseClient;
 
   beforeAll(() => {
     adminClient = createAdminClient();
     anonClient = createAnonClient();
+    serviceClient = createAdminClient();
+  });
+
+  it("denies direct anon execution of public operation functions", async () => {
+    const lookup = await anonClient.rpc("lookup_public_repair", {
+      p_tracking_code: "TRK-0123456789ABCDEF01234567",
+    });
+    expect(lookup.error).not.toBeNull();
+
+    const observation = await anonClient.rpc(
+      "record_successful_tracking_view",
+      { p_tracking_code: "TRK-0123456789ABCDEF01234567" },
+    );
+    expect(observation.error).not.toBeNull();
+
+    const submission = await submitRepairRequestAs(
+      anonClient,
+      "no-such-provider-slug",
+    );
+    expect(submission.error).not.toBeNull();
+  });
+
+  it("allows service-role execution of public operation functions", async () => {
+    // Well-formed but unknown Tracking Code: neutral empty result.
+    const lookup = assertSupabaseSuccess(
+      await serviceClient.rpc("lookup_public_repair", {
+        p_tracking_code: "TRK-FFFFFFFFFFFFFFFFFFFFFFFF",
+      }),
+      "execute public Tracking lookup as service role",
+    );
+    const rows = Array.isArray(lookup.data) ? lookup.data : [];
+    expect(rows).toEqual([]);
+
+    assertSupabaseSuccess(
+      await serviceClient.rpc("record_successful_tracking_view", {
+        p_tracking_code: "TRK-FFFFFFFFFFFFFFFFFFFFFFFF",
+      }),
+      "execute public Tracking observation as service role",
+    );
   });
 
   it("anon cannot SELECT raw providers, but can SELECT the public projection without private fields", async () => {
@@ -1570,7 +1614,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       );
 
       const submitted = assertSupabaseSuccess(
-        await submitRepairRequestAs(anonClient, provider.slug),
+        await submitRepairRequestAs(serviceClient, provider.slug),
         "submit public Repair Request",
       );
       const receipt = Array.isArray(submitted.data)
@@ -1676,7 +1720,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
 
       const submissions = await Promise.all(
         Array.from({ length: 60 }, (_, index) =>
-          submitRepairRequestAs(anonClient, providerA.slug, {
+          submitRepairRequestAs(serviceClient, providerA.slug, {
             p_customer_name: `Paginated Customer ${index}`,
           }),
         ),
@@ -1689,7 +1733,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       );
 
       const providerBSubmission = assertSupabaseSuccess(
-        await submitRepairRequestAs(anonClient, providerB.slug),
+        await submitRepairRequestAs(serviceClient, providerB.slug),
         "submit isolated Provider B Request",
       );
       const providerBReceipt = Array.isArray(providerBSubmission.data)
@@ -1795,7 +1839,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "configure Provider A Service Modes",
       );
       const submitted = assertSupabaseSuccess(
-        await submitRepairRequestAs(anonClient, providerA.slug),
+        await submitRepairRequestAs(serviceClient, providerA.slug),
         "submit Provider A Repair Request",
       );
       const receipt = Array.isArray(submitted.data)
@@ -1923,7 +1967,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "configure terminal race Service Modes",
       );
       const submitted = assertSupabaseSuccess(
-        await submitRepairRequestAs(anonClient, provider.slug),
+        await submitRepairRequestAs(serviceClient, provider.slug),
         "submit Request for terminal race",
       );
       const receipt = Array.isArray(submitted.data)
@@ -2005,7 +2049,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "configure acceptance Service Modes",
       );
       const submitted = assertSupabaseSuccess(
-        await submitRepairRequestAs(anonClient, provider.slug),
+        await submitRepairRequestAs(serviceClient, provider.slug),
         "submit Request for acceptance",
       );
       const receipt = Array.isArray(submitted.data)
@@ -2934,7 +2978,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       );
 
       const lookup = assertSupabaseSuccess(
-        await anonClient.rpc("lookup_public_repair", {
+        await serviceClient.rpc("lookup_public_repair", {
           p_tracking_code: receipt.tracking_code,
         }),
         "look up direct Repair publicly",
@@ -3011,7 +3055,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       expect(memberTrackingDelete.error).not.toBeNull();
 
       const oversizedObservation = assertSupabaseSuccess(
-        await anonClient.rpc("record_successful_tracking_view", {
+        await serviceClient.rpc("record_successful_tracking_view", {
           p_tracking_code: receipt.tracking_code.padStart(129, " "),
         }),
         "reject oversized direct Tracking observation input",
@@ -3033,7 +3077,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "TRK-FFFFFFFFFFFFFFFFFFFFFFFF",
       ]) {
         assertSupabaseSuccess(
-          await anonClient.rpc("record_successful_tracking_view", {
+          await serviceClient.rpc("record_successful_tracking_view", {
             p_tracking_code: submittedCode,
           }),
           "record a successful public Tracking view when eligible",
@@ -3067,7 +3111,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "TRK-FFFFFFFFFFFFFFFFFFFFFFFF",
       ]) {
         const missing = assertSupabaseSuccess(
-          await anonClient.rpc("lookup_public_repair", {
+          await serviceClient.rpc("lookup_public_repair", {
             p_tracking_code: invalidCode,
           }),
           "hide malformed or unknown public Tracking lookup",
@@ -3106,7 +3150,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "configure Request-origin Tracking Service Modes",
       );
       const submitted = assertSupabaseSuccess(
-        await submitRepairRequestAs(anonClient, provider.slug),
+        await submitRepairRequestAs(serviceClient, provider.slug),
         "submit Request for public Tracking",
       );
       const requestReceipt = Array.isArray(submitted.data)
@@ -3153,7 +3197,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       );
 
       const lookup = assertSupabaseSuccess(
-        await anonClient.rpc("lookup_public_repair", {
+        await serviceClient.rpc("lookup_public_repair", {
           p_tracking_code: repairReceipt.tracking_code,
         }),
         "look up Request-origin Repair publicly",
@@ -3179,7 +3223,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       expect(publicRow).not.toHaveProperty("tracking_code");
 
       assertSupabaseSuccess(
-        await anonClient.rpc("record_successful_tracking_view", {
+        await serviceClient.rpc("record_successful_tracking_view", {
           p_tracking_code: repairReceipt.tracking_code,
         }),
         "record Request-origin public Tracking view",
