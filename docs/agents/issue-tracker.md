@@ -17,6 +17,22 @@ Infer the repository from `git remote -v`; `gh` does this automatically when run
 
 **PRs as a request surface: no.** Set this to `yes` if this repo later treats external PRs as feature requests.
 
+## Release hardening (v0.1.0)
+
+During the v0.1.0 hardening milestone, release issues follow the conventions in `docs/release/v0.1.0-hardening/handoff/01_RELEASE_BASELINE_AND_CHANGE_CONTROL.md`.
+
+- **Template**: use the `.github/ISSUE_TEMPLATE/release-issue.yml` form; it carries severity, affected Module, route/database impact, reproduction, expected behavior, security/data impact, required tests, owner, and release-blocker fields.
+- **Milestone**: assign every open release issue to the `v0.1.0 Hardening & Validation` milestone.
+- **Severity**: P0 stop release | P1 must close | P2 fix or Lead-approved defer | P3 post-release.
+- **State machine**:
+
+```text
+TRIAGE -> ACCEPTED -> IN PROGRESS -> REVIEW -> VERIFIED -> CLOSED
+                                    \-> DEFERRED
+```
+
+`VERIFIED` means the integrated fix passed its full regression surface on `staging`, not merely that code merged.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.
