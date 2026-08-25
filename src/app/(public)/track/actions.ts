@@ -7,6 +7,7 @@ import {
   lookupRepairByTrackingCode,
   type PublicRepairView,
 } from "@/features/tracking";
+import { checkRateLimit, resolveClientIdentifier } from "@/lib/rate-limit";
 
 export type TrackRepairActionState =
   | { outcome: "found"; view: PublicRepairView }
@@ -19,6 +20,19 @@ export async function trackRepairAction(
   formData: FormData,
 ): Promise<TrackRepairActionState> {
   try {
+    const limit = checkRateLimit(
+      "tracking_lookup",
+      await resolveClientIdentifier(),
+    );
+
+    if (!limit.allowed) {
+      return {
+        outcome: "unavailable",
+        message:
+          "Too many tracking attempts from this connection. Please try again shortly.",
+      };
+    }
+
     const trackingCode = formData.get("trackingCode");
     const view = await lookupRepairByTrackingCode(trackingCode);
 

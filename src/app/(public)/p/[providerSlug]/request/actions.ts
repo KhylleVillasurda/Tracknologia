@@ -6,6 +6,7 @@ import {
   submitRepairRequestSchema,
   type RepairRequestReceipt,
 } from "@/features/repair-requests";
+import { checkRateLimit, resolveClientIdentifier } from "@/lib/rate-limit";
 
 export interface SubmitRepairRequestActionState {
   error?: string;
@@ -42,6 +43,17 @@ export async function submitRepairRequestAction(
   _previousState: SubmitRepairRequestActionState | null,
   formData: FormData,
 ): Promise<SubmitRepairRequestActionState> {
+  const limit = checkRateLimit(
+    "repair_request_submit",
+    await resolveClientIdentifier(),
+  );
+
+  if (!limit.allowed) {
+    return {
+      error: "Too many requests from this connection. Please try again later.",
+    };
+  }
+
   const values = collectValues(formData);
   const parsed = submitRepairRequestSchema.safeParse(values);
 

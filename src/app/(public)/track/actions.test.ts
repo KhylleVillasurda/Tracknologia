@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
+  headers: vi.fn(),
   lookupRepairByTrackingCode: vi.fn(),
   recordSuccessfulTrackingView: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({ after: mocks.after }));
+vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("@/features/analytics", () => ({
   recordSuccessfulTrackingView: mocks.recordSuccessfulTrackingView,
 }));
@@ -16,6 +18,7 @@ vi.mock("@/features/tracking", () => ({
 }));
 
 import { trackRepairAction } from "./actions";
+import { resetRateLimits } from "@/lib/rate-limit";
 
 const TRACKING_CODE = "  trk-0123456789abcdef01234567  ";
 const NORMALIZED_TRACKING_CODE = "TRK-0123456789ABCDEF01234567";
@@ -41,6 +44,8 @@ function trackingFormData() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetRateLimits();
+  mocks.headers.mockResolvedValue({ get: () => null });
 });
 
 describe("trackRepairAction", () => {
