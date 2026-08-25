@@ -22,6 +22,9 @@ repair_updates
 
 Validation telemetry:
 tracking_events
+
+Short-lived operational security state:
+public_operation_rate_limits
 ```
 
 Authentication identities live in Supabase-managed `auth.users`.
@@ -278,6 +281,14 @@ npx supabase db push
   `submit_repair_request` is revoked from `anon`/`authenticated` and granted to
   `service_role` only, so the publishable key cannot invoke them directly. The
   application server calls them through the server-only service client.
+- **Durable public-operation abuse control**:
+  `check_public_operation_rate_limit(...)` atomically increments one fixed
+  window keyed by operation and a server-generated opaque HMAC actor digest.
+  Its short-lived table stores no raw IP, Tracking Code, or customer data. Each
+  later invocation deletes at most 100 expired rows. Expired rows are logically
+  inactive immediately but may remain physically while there is no traffic;
+  idle periods also create no new rows. Only `service_role` can execute the
+  function or inspect retained state.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
   SET search_path = public, pg_temp;

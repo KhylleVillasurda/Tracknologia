@@ -128,12 +128,12 @@ customer-visible update
 last updated timestamp
 ```
 
-The function bounds and validates direct RPC input, fixes its `search_path`,
-returns explicitly declared columns, and caps nested Updates at 25
-message/timestamp pairs. Anonymous callers have execute permission on this
-function but no direct read privilege on Provider, Repair, Customer Update, or
-Status Event tables. Disabling new Requests does not hide Tracking for existing
-Repairs.
+The function bounds and validates RPC input, fixes its `search_path`, returns
+explicitly declared columns, and caps nested Updates at 25 message/timestamp
+pairs. Only the server-only service-role client may execute it; anonymous and
+authenticated callers also have no direct read privilege on Provider, Repair,
+Customer Update, or Status Event tables. Disabling new Requests does not hide
+Tracking for existing Repairs.
 
 The Tracking Module rejects raw input longer than 128 characters before
 normalization or persistence, strictly validates the database row, and
@@ -146,9 +146,9 @@ numbers/specifications, free-form Service Mode details, Ticket Number, echoed
 Tracking Code, private identifiers, Update authors, audit history, or complete
 Repair rows through the public Interface.
 
-Production exposure still requires durable abuse/rate limiting that protects
-the directly callable Supabase function as well as the Next.js route. Do not
-represent a per-process memory counter as sufficient distributed protection.
+The public Server Action derives connection metadata, converts it to a keyed
+HMAC digest, and atomically consumes the shared PostgreSQL Tracking budget
+before the lookup. Malformed and unknown codes remain the same neutral result.
 
 ## Analytics telemetry
 
@@ -168,9 +168,10 @@ the submitted code inside its server closure and uses Next.js `after()` so an
 unresolved Analytics operation is outside the response path. The serialized
 action result contains neither the credential nor Analytics state.
 
-The observation function is still a publicly callable write surface and must
-be covered by the same durable abuse controls required for public Tracking
-before broad production exposure.
+The observation function is service-role only. Observation explicitly inherits
+the successful Tracking lookup budget: it is scheduled at most once, after one
+successful budgeted lookup. Analytics remains post-response and non-fatal, so
+it does not add a second blocking limiter to the Tracking response path.
 
 ## Public Repair Requests
 
@@ -194,10 +195,41 @@ Public operations trust boundary:
   (`20260825120000_restrict_public_rpc_grants.sql`). The publishable key alone
   cannot reach Postgres, so abuse control in the application layer cannot be
   bypassed by direct database calls.
-- In-process rate limiting guards the Tracking lookup and Repair Request
-  submission Server Actions with per-operation thresholds; identifiers are
-  stored only as irreversible digests. Scale-out deployment requires a shared
-  store before these thresholds hold across instances.
+- The Tracking and Repair Request Server Actions atomically consume isolated,
+  configurable PostgreSQL budgets before invoking their owning features.
+  Durable rows contain only the operation, an opaque server-keyed HMAC actor
+  key, the bounded window/count, and expiry. Expiry ends a row's logical effect
+  immediately. A later check physically prunes at most 100 expired rows; rows
+  may remain while the service is idle, but idle periods create no new rows.
+
+The final public trust boundary is:
+
+```text
+browser
+-> trusted production ingress strips/overwrites internal headers and injects proof
+-> Next.js Server Action verifies ingress proof and checks durable abuse control
+-> service-role-only narrow public-operation RPC
+```
+
+Production ingress must strip incoming `x-tracknologia-proxy-secret` and
+`x-tracknologia-client-ip` headers, overwrite the client-IP header, inject the
+proof secret, and prevent direct access to the Next.js upstream. The action
+accepts the client IP only after a constant-time proof check and fails closed
+when proof or metadata is absent/invalid. `PUBLIC_ABUSE_HMAC_SECRET` and the
+separate `PUBLIC_ABUSE_TRUSTED_PROXY_SECRET` are server-only, must each contain
+at least 32 characters, and must be shared by the relevant app/ingress
+instances. Never reuse one as the other.
+
+The supported local Docker setup exposes Next.js directly and therefore does
+not trust forwarding headers. Local development opts into one shared
+abuse-control bucket by setting `PUBLIC_ABUSE_SHARED_DEV_BUCKET=true`; the
+opt-in is explicit and environment-based, so a staging or production deployment
+that forgets its ingress configuration fails closed instead of silently sharing
+one bucket. Arbitrary forwarded values cannot create additional buckets.
+
+The public Server Actions deliberately consume their budget before validating
+form input, so hostile traffic cannot obtain free schema validation probes from
+the application.
 
 Production exposure still needs:
 

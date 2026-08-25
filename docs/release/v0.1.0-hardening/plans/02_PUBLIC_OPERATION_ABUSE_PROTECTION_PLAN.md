@@ -89,6 +89,12 @@ tracking_lookup
 tracking_observation
 ```
 
+Decision recorded 2026-08-26: `tracking_observation` inherits the
+`tracking_lookup` budget. Observation is scheduled at most once and only after
+a successful lookup, so it cannot exceed the already-consumed lookup budget.
+It intentionally has no second blocking limiter because Analytics must remain
+post-response and non-fatal to Tracking.
+
 Auth registration/reset should be added only where the current application path exposes meaningful abuse risk; do not invent CAPTCHA as a default requirement.
 
 Separate burst limits from sustained limits where needed. Keep threshold values in one server-side configuration seam rather than scattering constants across routes.

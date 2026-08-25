@@ -55,6 +55,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<anon-or-publishable-key>
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+PUBLIC_ABUSE_HMAC_SECRET=<at-least-32-random-characters>
+PUBLIC_ABUSE_TRUSTED_PROXY_SECRET=<different-at-least-32-random-characters>
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` is server-only. It is required because public,
@@ -62,6 +64,29 @@ accountless operations (Tracking lookup, Tracking observation, Repair Request
 submission) run under the service-role credential so the publishable key cannot
 reach Postgres directly. Never expose it through a `NEXT_PUBLIC_*` variable or a
 browser bundle. For local Supabase, `supabase status` prints the value.
+
+`PUBLIC_ABUSE_HMAC_SECRET` creates opaque actor keys for the shared PostgreSQL
+abuse control. Keep it server-only and identical across application instances.
+Optional validated overrides are
+`PUBLIC_ABUSE_TRACKING_LOOKUP_MAX`,
+`PUBLIC_ABUSE_TRACKING_LOOKUP_WINDOW_SECONDS`,
+`PUBLIC_ABUSE_REPAIR_REQUEST_MAX`, and
+`PUBLIC_ABUSE_REPAIR_REQUEST_WINDOW_SECONDS`.
+
+Production also requires a trusted ingress and a separate
+`PUBLIC_ABUSE_TRUSTED_PROXY_SECRET`. The ingress must remove any incoming
+`x-tracknologia-proxy-secret` and `x-tracknologia-client-ip` values, set the
+client-IP header itself, inject the proof secret, and block direct access to the
+Next.js upstream. Do not reuse the HMAC secret as the proxy proof secret. The
+application rejects public operations in production when proof or client-IP
+metadata is missing or invalid.
+
+The local Docker setup exposes Next.js without that trusted ingress. Local
+development opts into one shared abuse-control bucket by setting
+`PUBLIC_ABUSE_SHARED_DEV_BUCKET=true` in `.env.local`; forwarding headers are
+ignored, so spoofed values cannot evade the limit. Any environment without
+that opt-in requires valid trusted-ingress proof and fails closed otherwise,
+so staging must configure the same ingress contract as production.
 
 `.env.local` must be ignored by Git.
 
