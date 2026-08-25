@@ -57,19 +57,19 @@ export default function Home() {
 
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
-              href="/register"
+              href="/track"
               className={cn(buttonVariants({ size: "lg" }), "w-full sm:w-auto")}
             >
-              Create Provider Account
+              Track Repair
             </Link>
             <Link
-              href="/login"
+              href="/register"
               className={cn(
                 buttonVariants({ variant: "outline", size: "lg" }),
                 "w-full sm:w-auto",
               )}
             >
-              Provider Dashboard
+              Create Provider Account
             </Link>
           </div>
         </section>

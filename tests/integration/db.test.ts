@@ -2868,4 +2868,221 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       });
     }
   });
+
+  it("anonymous Tracking returns a bounded allow-listed view after Provider closes Requests", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("public-tracking-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const provider = await createProviderAs(auth.client, {
+      displayName: "Public Tracking Provider",
+    });
+
+    try {
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "configure public Tracking Service Modes",
+      );
+      const created = assertSupabaseSuccess(
+        await auth.client.rpc("create_provider_repair", directRepairInput()),
+        "create public Tracking Repair",
+      );
+      const receipt = Array.isArray(created.data)
+        ? created.data[0]
+        : created.data;
+
+      const updateRows = Array.from({ length: 27 }, (_, index) => ({
+        repair_id: receipt.repair_id,
+        message: `Customer-visible update ${index + 1}`,
+        created_by_user_id: owner.user.id,
+        created_at: new Date(Date.UTC(2026, 7, 24, index)).toISOString(),
+      }));
+      assertSupabaseMutation(
+        await adminClient
+          .from("repair_updates")
+          .insert(updateRows)
+          .select("id"),
+        "insert bounded public Tracking updates",
+      );
+      assertSupabaseMutation(
+        await adminClient
+          .from("providers")
+          .update({ accepting_requests: false })
+          .eq("id", provider.providerId)
+          .select("id"),
+        "close Provider Requests before public Tracking",
+      );
+
+      const lookup = assertSupabaseSuccess(
+        await anonClient.rpc("lookup_public_repair", {
+          p_tracking_code: receipt.tracking_code,
+        }),
+        "look up direct Repair publicly",
+      );
+      const publicRow = Array.isArray(lookup.data)
+        ? lookup.data[0]
+        : lookup.data;
+      if (!publicRow) {
+        throw new Error("Public Tracking lookup returned no Repair");
+      }
+
+      expect(Object.keys(publicRow).sort()).toEqual([
+        "brand",
+        "current_status",
+        "customer_updates",
+        "device_type",
+        "last_updated_at",
+        "model",
+        "provider_display_name",
+        "service_mode",
+      ]);
+      expect(publicRow).toMatchObject({
+        provider_display_name: "Public Tracking Provider",
+        device_type: "Laptop",
+        brand: "Lenovo",
+        model: "IdeaPad 3",
+        current_status: "IN_PROGRESS",
+        service_mode: "DROP_OFF",
+      });
+      expect(publicRow.customer_updates).toHaveLength(25);
+      expect(publicRow.customer_updates[0]).toMatchObject({
+        message: "Customer-visible update 27",
+      });
+      expect(publicRow.customer_updates[24]).toMatchObject({
+        message: "Customer-visible update 3",
+      });
+      expect(Object.keys(publicRow.customer_updates[0]).sort()).toEqual([
+        "created_at",
+        "message",
+      ]);
+      expect(Date.parse(publicRow.last_updated_at)).toBe(
+        Date.parse(publicRow.customer_updates[0].created_at),
+      );
+
+      for (const invalidCode of [
+        "TN-2026-0000000001",
+        "TRK-FFFFFFFFFFFFFFFFFFFFFFFF",
+      ]) {
+        const missing = assertSupabaseSuccess(
+          await anonClient.rpc("lookup_public_repair", {
+            p_tracking_code: invalidCode,
+          }),
+          "hide malformed or unknown public Tracking lookup",
+        );
+        expect(missing.data).toEqual([]);
+      }
+
+      const rawRepairs = await anonClient.from("repairs").select("*");
+      const rawUpdates = await anonClient.from("repair_updates").select("*");
+      expect(rawRepairs.error).not.toBeNull();
+      expect(rawUpdates.error).not.toBeNull();
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("Request-origin Repair lifecycle and Customer Updates appear through the same public Tracking view", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("request-tracking-owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const provider = await createProviderAs(auth.client, {
+      displayName: "Request Tracking Provider",
+    });
+
+    try {
+      assertSupabaseSuccess(
+        await auth.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "configure Request-origin Tracking Service Modes",
+      );
+      const submitted = assertSupabaseSuccess(
+        await submitRepairRequestAs(anonClient, provider.slug),
+        "submit Request for public Tracking",
+      );
+      const requestReceipt = Array.isArray(submitted.data)
+        ? submitted.data[0]
+        : submitted.data;
+      const request = assertSupabaseSuccess(
+        await adminClient
+          .from("repair_requests")
+          .select("id")
+          .eq("reference_code", requestReceipt.reference_code)
+          .single(),
+        "resolve Request for public Tracking",
+      );
+      if (!request.data) {
+        throw new Error("Public Tracking Request fixture was not created");
+      }
+
+      const accepted = assertSupabaseSuccess(
+        await auth.client.rpc(
+          "create_repair_from_request",
+          verifiedRepairInput(request.data.id),
+        ),
+        "accept Request for public Tracking",
+      );
+      const repairReceipt = Array.isArray(accepted.data)
+        ? accepted.data[0]
+        : accepted.data;
+      assertSupabaseMutation(
+        await auth.client
+          .from("repair_updates")
+          .insert({
+            repair_id: repairReceipt.repair_id,
+            message: "Repair is ready for the agreed handover.",
+          })
+          .select("id"),
+        "append Request-origin Customer Update",
+      );
+      assertSupabaseSuccess(
+        await auth.client.rpc("change_repair_status", {
+          p_repair_id: repairReceipt.repair_id,
+          p_next_status: "READY",
+        }),
+        "mark Request-origin Repair READY",
+      );
+
+      const lookup = assertSupabaseSuccess(
+        await anonClient.rpc("lookup_public_repair", {
+          p_tracking_code: repairReceipt.tracking_code,
+        }),
+        "look up Request-origin Repair publicly",
+      );
+      const publicRow = Array.isArray(lookup.data)
+        ? lookup.data[0]
+        : lookup.data;
+      expect(publicRow).toMatchObject({
+        provider_display_name: "Request Tracking Provider",
+        device_type: "Laptop",
+        brand: "Verified Brand",
+        model: "Verified Model",
+        current_status: "READY",
+        service_mode: "DROP_OFF",
+        customer_updates: [
+          expect.objectContaining({
+            message: "Repair is ready for the agreed handover.",
+          }),
+        ],
+      });
+      expect(publicRow).not.toHaveProperty("origin");
+      expect(publicRow).not.toHaveProperty("ticket_number");
+      expect(publicRow).not.toHaveProperty("tracking_code");
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id],
+      });
+    }
+  });
 });

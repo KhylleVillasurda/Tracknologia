@@ -88,15 +88,31 @@ jobs:
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2
+        with:
+          version: 2.115.0
 
       - name: Initialize local Supabase config
         run: supabase init
+
+      - name: Configure collision-free database port
+        shell: bash
+        run: |
+          sed -i '0,/port = 54322/s//port = 55432/' supabase/config.toml
+          grep -q '^port = 55432$' supabase/config.toml
 
       - name: Prepare empty local seed
         run: touch supabase/seed.sql
 
       - name: Start local Supabase
-        run: supabase start
+        shell: bash
+        run: |
+          if supabase start; then
+            exit 0
+          fi
+
+          echo "::warning::Supabase startup failed; cleaning local state and retrying once."
+          supabase stop --all --no-backup || true
+          supabase start
 
       - name: Reset local database
         run: pnpm db:reset
@@ -112,3 +128,7 @@ jobs:
 
       - name: Run database integration tests
         run: pnpm test:db
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true

@@ -178,6 +178,17 @@ nonblank and at most 2,000 characters. RLS derives ownership through the parent
 Repair; authenticated roles have no update/delete privilege and anonymous roles
 have no raw access.
 
+### Public Tracking projection
+
+`lookup_public_repair(text)` is a read-only `SECURITY DEFINER` function rather
+than a table or unrestricted view. It normalizes a bounded Tracking Code and
+returns only Provider display name, device type/brand/model, current status,
+selected Service Mode, computed last activity time, and at most 25 Customer
+Update message/timestamp objects. It intentionally excludes customer identity,
+contact data, private technical fields, Ticket Number, credentials, internal
+ids, actors, and audit history. The existing globally unique
+`repairs.tracking_code` index supports the lookup.
+
 ---
 
 ## Supabase Migration Rules & Lifecycle
@@ -231,6 +242,9 @@ npx supabase db push
   - `change_repair_status(repair_id, next_status)`: Provider-authorized Repair
     row lock, exact transition recheck, status/event update, and completion
     timestamp maintenance.
+- **Restricted public read function**: `lookup_public_repair(tracking_code)`
+  returns the fixed customer-safe Repair projection and latest 25 Customer
+  Updates without granting raw table access.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
   SET search_path = public, pg_temp;
