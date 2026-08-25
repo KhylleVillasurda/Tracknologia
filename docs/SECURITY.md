@@ -185,9 +185,22 @@ Implemented controls:
   row lock;
 - unpredictable `REQ-[A-F0-9]{16}` public Request References.
 
+Public operations trust boundary:
+
+- The application server invokes the public operation RPCs
+  (`lookup_public_repair`, `record_successful_tracking_view`,
+  `submit_repair_request`) with the server-only service-role credential via
+  `src/lib/supabase/service.ts`; `anon`/`authenticated` EXECUTE is revoked
+  (`20260825120000_restrict_public_rpc_grants.sql`). The publishable key alone
+  cannot reach Postgres, so abuse control in the application layer cannot be
+  bypassed by direct database calls.
+- In-process rate limiting guards the Tracking lookup and Repair Request
+  submission Server Actions with per-operation thresholds; identifiers are
+  stored only as irreversible digests. Scale-out deployment requires a shared
+  store before these thresholds hold across instances.
+
 Production exposure still needs:
 
-- abuse/rate limiting before broad public exposure;
 - optional CAPTCHA/bot protection only when actual abuse warrants it.
 
 ## Request decision integrity

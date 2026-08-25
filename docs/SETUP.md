@@ -54,7 +54,14 @@ Required values:
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<anon-or-publishable-key>
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 ```
+
+`SUPABASE_SERVICE_ROLE_KEY` is server-only. It is required because public,
+accountless operations (Tracking lookup, Tracking observation, Repair Request
+submission) run under the service-role credential so the publishable key cannot
+reach Postgres directly. Never expose it through a `NEXT_PUBLIC_*` variable or a
+browser bundle. For local Supabase, `supabase status` prints the value.
 
 `.env.local` must be ignored by Git.
 

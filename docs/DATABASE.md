@@ -273,6 +273,11 @@ npx supabase db push
   `record_successful_tracking_view(tracking_code)` returns no data and writes
   only minimal internal telemetry for an existing Repair without granting raw
   `tracking_events` access.
+- **Public operation functions are service-role only**: EXECUTE on
+  `lookup_public_repair`, `record_successful_tracking_view`, and
+  `submit_repair_request` is revoked from `anon`/`authenticated` and granted to
+  `service_role` only, so the publishable key cannot invoke them directly. The
+  application server calls them through the server-only service client.
 - All `SECURITY DEFINER` functions must explicitly set:
   ```sql
   SET search_path = public, pg_temp;
