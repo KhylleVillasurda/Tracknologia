@@ -17,6 +17,13 @@ This directory contains the repository-facing engineering documentation for Trac
 
 `../CONTEXT.md` is the canonical glossary. It should contain domain terms and their meanings, not implementation details.
 
+## Release hardening (v0.1.0)
+
+`release/v0.1.0-hardening/` holds the release-hardening program for v0.1.0:
+
+- `handoff/` — process parts: change control, security/reliability scope, testing/CI gates, bug burn, load, UAT, RC/deployment, stabilization, readiness checklist. Start at `00_POST_MVP_MASTER_HANDOFF.md`.
+- `plans/` — executable implementation plans derived from the handoff, with dependency order and shared execution context. Start at `00_MASTER_INDEX_AND_DEPENDENCY_MAP.md`.
+
 ## Architecture Decision Records
 
 Accepted architecture decisions belong in `adr/`.
