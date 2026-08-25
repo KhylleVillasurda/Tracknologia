@@ -2917,6 +2917,22 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "close Provider Requests before public Tracking",
       );
 
+      const repairTiming = assertSupabaseSuccess(
+        await adminClient
+          .from("repairs")
+          .select("updated_at")
+          .eq("id", receipt.repair_id)
+          .single(),
+        "read Repair activity timestamp for public Tracking",
+      );
+      const repairUpdatedAt = repairTiming.data?.updated_at;
+      if (!repairUpdatedAt) {
+        throw new Error("Public Tracking Repair timestamp was not found");
+      }
+      const latestCustomerUpdateAt = Math.max(
+        ...updateRows.map((update) => Date.parse(update.created_at)),
+      );
+
       const lookup = assertSupabaseSuccess(
         await anonClient.rpc("lookup_public_repair", {
           p_tracking_code: receipt.tracking_code,
@@ -2960,7 +2976,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "message",
       ]);
       expect(Date.parse(publicRow.last_updated_at)).toBe(
-        Date.parse(publicRow.customer_updates[0].created_at),
+        Math.max(Date.parse(repairUpdatedAt), latestCustomerUpdateAt),
       );
 
       const anonTrackingEvents = await anonClient
