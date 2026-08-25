@@ -110,15 +110,18 @@ and activity timestamps extend `tests/integration/db.test.ts` and require
 
 ### Analytics
 
-- successful public Tracking records through the narrow Analytics RPC;
-- malformed, unknown, or invalid public projections record nothing;
-- persistence failure returns `false`, uses a sanitized log, and does not fail
-  a successful Tracking lookup;
+- the `/track` Server Action schedules a successful observation with Next.js
+  `after()` and returns before an unresolved Analytics task starts;
+- malformed, unknown, unavailable, or invalid public projections schedule
+  nothing;
+- persistence failure returns `false` and uses a sanitized log inside the
+  deferred task;
 - analytics payloads contain no Repair/customer snapshot or Tracking
   credential.
 
-Feature-local coverage lives in `src/features/analytics/analytics.test.ts` and
-the Tracking integration cases in `src/features/tracking/tracking.test.ts`.
+Route-adapter coverage lives in `src/app/(public)/track/actions.test.ts`;
+feature-local coverage lives in `src/features/analytics/analytics.test.ts` and
+`src/features/tracking/tracking.test.ts`.
 Real table grants/RLS, bounded neutral RPC behavior, repeated raw views,
 distinct-Repair adoption, both Repair origins, and stored column shape extend
 `tests/integration/db.test.ts` and require
@@ -185,6 +188,8 @@ Run against real PostgreSQL/Supabase-compatible behavior for:
 - anonymous raw Repair, Update, and Status Event reads remain denied.
 - anonymous and authenticated direct `tracking_events` access remains denied;
 - malformed/unknown telemetry RPC inputs insert nothing and reveal no detail;
+- direct telemetry RPC input over 128 bytes inserts nothing and returns no
+  existence detail;
 - repeated valid observations create raw views while distinct Repair adoption
   remains one;
 - direct and Request-origin Repairs can both record successful views;

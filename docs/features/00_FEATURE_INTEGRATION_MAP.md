@@ -24,12 +24,16 @@ This document explains how Tracknologia's feature Modules cooperate without beco
                                                   ▼
                                           ┌─────────────────┐
                                           │    Tracking     │
-                                          └────────┬────────┘
-                                                   │ successful lookup
-                                                   ▼
-                                          ┌─────────────────┐
-                                          │    Analytics    │
                                           └─────────────────┘
+
+┌───────────────────────┐
+│ Next.js /track action │
+└───────────┬───────────┘
+            │ after(success)
+            ▼
+   ┌─────────────────┐
+   │    Analytics    │
+   └─────────────────┘
 
 Analytics derives domain metrics from authoritative Provider, Request, Repair,
 and Status Event rows. It stores only successful Tracking views and must not
@@ -73,10 +77,11 @@ Tracking never returns a raw `Repair` row and never mutates a Repair.
 ### Analytics
 
 Analytics derives Provider creation, Request conversion, Repair origin,
-lifecycle, and completion metrics from existing durable domain rows. Tracking
-attempts one best-effort `recordSuccessfulTrackingView` call only after a
-customer-safe lookup succeeds. Analytics storage failure does not replace the
-successful Tracking result with an error.
+lifecycle, and completion metrics from existing durable domain rows. After
+Tracking returns a customer-safe result, the `/track` Server Action schedules
+one best-effort `recordSuccessfulTrackingView` call with Next.js `after()`.
+Tracking does not import Analytics, and the customer response does not wait for
+Analytics latency or persistence.
 
 ## End-to-end flow A — Customer Repair Request
 
@@ -173,9 +178,9 @@ restricted projection query
   ↓
 PublicRepairView
   ↓
-Customer sees Provider + device + status + Customer Updates
-  ↓
-Analytics: best-effort successful-view observation
+/track action schedules Analytics with after()
+  ├── response: Customer sees Provider + device + status + Customer Updates
+  └── post-response: best-effort successful-view observation
 ```
 
 The customer does not authenticate and does not receive Provider-private or
@@ -205,7 +210,8 @@ Do not duplicate the underlying rules in the dashboard route. It should call fea
 6. `Reported Problem` and `Diagnosis` remain distinct.
 7. Repair status history and Customer Updates remain distinct concepts.
 8. Tracking exposes a restricted projection, not internal Repair data.
-9. Analytics must not become an availability dependency for normal repair management.
+9. Analytics must not become an availability or latency dependency for public
+   Tracking or normal repair management.
 10. Removing a Provider Service Mode does not erase historical Repair
     arrangements; intentional Repair mode changes require current support at
     commit time.

@@ -47,17 +47,20 @@ ORDER BY provider_type;
 
 ```sql
 SELECT
-  provider_id,
-  count(*) AS repairs_created,
-  count(*) FILTER (WHERE origin = 'CUSTOMER_REQUEST') AS request_origin,
-  count(*) FILTER (WHERE origin = 'PROVIDER_CREATED') AS direct_origin
-FROM public.repairs
-GROUP BY provider_id
-ORDER BY repairs_created DESC, provider_id;
+  p.id AS provider_id,
+  p.provider_type,
+  count(r.id) AS repairs_created,
+  count(r.id) FILTER (WHERE r.origin = 'CUSTOMER_REQUEST') AS request_origin,
+  count(r.id) FILTER (WHERE r.origin = 'PROVIDER_CREATED') AS direct_origin
+FROM public.providers p
+LEFT JOIN public.repairs r ON r.provider_id = p.id
+GROUP BY p.id, p.provider_type
+ORDER BY repairs_created DESC, p.id;
 ```
 
-Repairs per Provider is the MVP repeat-use signal. Registration count alone is
-not adoption.
+Starting from `providers` keeps zero-Repair Providers in the adoption
+denominator. Repairs per Provider is the MVP repeat-use signal; registration
+count alone is not adoption.
 
 ### Status maintenance
 

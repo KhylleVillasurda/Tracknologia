@@ -236,7 +236,9 @@ Never expose:
 Apply durable rate limiting before broad public exposure. It must protect the
 direct Supabase RPC as well as the Next.js page; a process-memory limiter at the
 web route alone is insufficient. Analytics failure must not make lookup
-availability depend on Feature 06.
+availability or latency depend on Feature 06. The `/track` Server Action keeps
+the submitted code server-side, schedules the observation with Next.js
+`after()`, and returns no credential or Analytics state to the browser.
 
 ## Analytics telemetry
 
@@ -292,10 +294,12 @@ Browser-safe public/publishable configuration is distinct from privileged server
 - disabling new Repair Requests does not disable an existing Repair's Tracking;
 - anonymous/authenticated roles cannot access `tracking_events` directly;
 - malformed and unknown Tracking Codes create no telemetry;
+- direct observation input over 128 bytes creates no telemetry or existence
+  detail;
 - stored Tracking telemetry contains only Repair correlation and observation
   time;
-- Analytics failure leaves a successful public Tracking result available and
-  logs no credential or private database detail;
+- an unresolved Analytics operation cannot delay a successful public Tracking
+  result, and failures log no credential or private database detail;
 - repeated Request acceptance cannot create duplicate Repairs.
 - concurrent accept/decline decisions serialize to one terminal outcome.
 - anonymous callers cannot read Request/contact data or create Repairs directly.

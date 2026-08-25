@@ -100,17 +100,21 @@ It exposes a restricted `PublicRepairView` rather than the full Repair represent
 ## Analytics / pilot metrics
 
 Analytics derives Provider, Request, Repair, origin, lifecycle, and completion
-metrics from authoritative domain tables. Tracking calls the Analytics Module
-only after a public projection succeeds:
+metrics from authoritative domain tables. The Next.js adapter composes Tracking
+and Analytics without coupling the two feature Modules:
 
 ```text
-Tracking -> Analytics -> Supabase/PostgreSQL
+Tracking -> PublicRepairView
+                  ↓
+       /track Server Action
+        ├── response to Customer
+        └── after() -> Analytics -> Supabase/PostgreSQL
 ```
 
 The Analytics Interface hides best-effort persistence for minimal successful-
-view telemetry. Analytics failure does not reverse the dependency or make
-Tracking/domain operations unavailable. No dashboard, broad event platform, or
-external analytics dependency is part of the MVP architecture.
+view telemetry. Analytics latency/failure is outside the response path and does
+not make Tracking/domain operations unavailable. No dashboard, broad event
+platform, or external analytics dependency is part of the MVP architecture.
 
 ## Future native mobile
 

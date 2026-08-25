@@ -190,8 +190,10 @@ recordSuccessfulTrackingView(trackingCode): Promise<boolean>
 ```
 
 The Module hides the narrow Supabase RPC and converts persistence failure into
-a sanitized `false` result. Tracking calls it only after a successful restricted
-projection. `tracking_events` stores only Repair correlation and observation
+a sanitized `false` result. The `/track` Server Action schedules it with Next.js
+`after()` only after Tracking returns a successful restricted projection, so
+Tracking has no Analytics dependency and the customer response does not await
+telemetry. `tracking_events` stores only Repair correlation and observation
 time. Provider, Request, Repair, status, origin, and completion metrics are
 derived directly from their owning tables.
 

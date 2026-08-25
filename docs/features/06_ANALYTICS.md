@@ -109,8 +109,10 @@ come from `repair_status_events`.
 
 ### Tracking
 
-After validating a successful public projection, Tracking attempts
-`recordSuccessfulTrackingView`. Failed or not-found lookups record nothing.
+Tracking returns a validated public projection without depending on Analytics.
+The `/track` Server Action schedules `recordSuccessfulTrackingView` with Next.js
+`after()` only for a successful result. Failed or not-found lookups schedule
+nothing.
 
 ### Auth
 
@@ -129,9 +131,10 @@ Durable domain operation succeeds
 Analytics observation attempted
 ```
 
-Tracking awaits the observation attempt so a successful write is trustworthy,
-but the Analytics Interface catches persistence failure, logs a constant
-sanitized message, and returns `false`. The public view remains available.
+The `/track` Server Action schedules the observation with Next.js `after()` and
+returns the public result without awaiting Analytics. The Analytics Interface
+still catches persistence failure, logs a constant sanitized message, and
+returns `false` inside the deferred task.
 
 ## Privacy/data-minimization requirements
 
@@ -196,9 +199,13 @@ Test where analytics implementation is code-owned:
   Repair;
 - direct and Request-origin Repairs use the same observation path;
 - no secret/private fields or Tracking credential enter stored rows or logs;
-- Analytics failure does not change the successful public Tracking result;
+- a successful action result returns before an unresolved deferred Analytics
+  operation starts;
+- Analytics failure remains sanitized inside the deferred task;
 - anonymous and authenticated callers cannot read or write the telemetry table
-  directly.
+  directly;
+- direct RPC input over 128 bytes returns no existence detail and creates no
+  telemetry.
 
 ## Implemented baseline
 
@@ -208,12 +215,12 @@ Feature 06 is implemented through:
   persistence adapter;
 - `20260825010000_add_tracking_analytics.sql` for `tracking_events`, its index,
   RLS/grants, and the bounded `record_successful_tracking_view` function;
-- the existing Tracking Module, which observes only validated successful
-  lookups;
+- the `/track` Server Action, which uses Next.js `after()` to schedule
+  observation only after Tracking returns a validated successful lookup;
 - authoritative-table pilot queries documented in
   `docs/16_VALIDATION_AND_ANALYTICS.md`;
-- feature-local tests plus real PostgreSQL permission, input, origin, repeat-
-  view, and data-minimization coverage.
+- route-action/feature-local tests plus real PostgreSQL permission, bounded-
+  input, origin, repeat-view, and data-minimization coverage.
 
 ## Definition of done
 

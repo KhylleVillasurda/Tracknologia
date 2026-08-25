@@ -163,7 +163,10 @@ privileges or policies. Telemetry excludes Tracking Codes, customer/contact and
 Provider snapshots, IP addresses, user agents, cookies, fingerprints, Auth ids,
 tokens, and arbitrary metadata. Repeated views are not represented as unique
 Customers. Analytics persistence errors are sanitized and do not fail an
-otherwise successful public Tracking result.
+otherwise successful public Tracking result. The `/track` Server Action keeps
+the submitted code inside its server closure and uses Next.js `after()` so an
+unresolved Analytics operation is outside the response path. The serialized
+action result contains neither the credential nor Analytics state.
 
 The observation function is still a publicly callable write surface and must
 be covered by the same durable abuse controls required for public Tracking
@@ -231,10 +234,11 @@ At minimum test:
 - anonymous/authenticated callers cannot read or write `tracking_events`
   directly;
 - malformed and unknown Tracking Codes create no telemetry;
+- oversized direct observation input creates no telemetry or existence detail;
 - successful-view telemetry contains only Repair correlation and observation
   time;
-- Analytics failure neither logs the credential/database detail nor fails a
-  successful Tracking lookup;
+- Analytics latency/failure neither delays a successful Tracking response nor
+  logs the credential/database detail;
 - anonymous callers cannot read raw Repair/Update/Status Event tables;
 - direct and Request-origin Repairs share one public projection;
 - closing new Requests does not disable existing Repair tracking;

@@ -2994,6 +2994,22 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       expect(memberTrackingUpdate.error).not.toBeNull();
       expect(memberTrackingDelete.error).not.toBeNull();
 
+      const oversizedObservation = assertSupabaseSuccess(
+        await anonClient.rpc("record_successful_tracking_view", {
+          p_tracking_code: receipt.tracking_code.padStart(129, " "),
+        }),
+        "reject oversized direct Tracking observation input",
+      );
+      expect(oversizedObservation.data).toBeNull();
+      const viewsAfterOversizedInput = assertSupabaseSuccess(
+        await adminClient
+          .from("tracking_events")
+          .select("id")
+          .eq("repair_id", receipt.repair_id),
+        "verify oversized Tracking observation created no telemetry",
+      );
+      expect(viewsAfterOversizedInput.data).toEqual([]);
+
       for (const submittedCode of [
         receipt.tracking_code,
         `  ${receipt.tracking_code.toLowerCase()}  `,
