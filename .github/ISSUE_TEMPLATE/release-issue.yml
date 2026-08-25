@@ -1,0 +1,92 @@
+name: Release issue (v0.1.0 hardening)
+description: Tracknologia release-hardening issue with required severity and regression fields
+title: "<short defect/scope title>"
+labels: ["needs-triage"]
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: "P0 stop release | P1 must close | P2 fix or Lead-approved defer | P3 post-release"
+      options:
+        - P0
+        - P1
+        - P2
+        - P3
+    validations:
+      required: true
+  - type: dropdown
+    id: status
+    attributes:
+      label: Status
+      description: State machine lives in docs/agents/issue-tracker.md
+      options:
+        - TRIAGE
+        - ACCEPTED
+        - IN PROGRESS
+        - REVIEW
+        - DEFERRED (Lead-approved)
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: Affected Module(s)
+      description: Owning feature Module under src/features/
+      options:
+        - auth
+        - providers
+        - repair-requests
+        - repairs
+        - tracking
+        - analytics
+        - cross-module / infrastructure
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Route/database impact
+      description: Affected routes, Server Actions, tables, RLS policies, migrations
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Steps or evidence that reproduce the problem
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security/data impact
+      description: Tenant isolation, public data exposure, credential handling; write "none identified" if none
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Required tests (regression surface)
+      description: Which module/integration/E2E tests must pass before VERIFIED
+    validations:
+      required: true
+  - type: input
+    id: owner
+    attributes:
+      label: Owner
+  - type: dropdown
+    id: blocker
+    attributes:
+      label: Release blocker
+      options:
+        - "yes"
+        - "no"
+    validations:
+      required: true

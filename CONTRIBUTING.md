@@ -9,6 +9,30 @@
 - Do not introduce a dependency, table, workflow or abstraction without a concrete requirement.
 - Security and Provider isolation are acceptance criteria, not cleanup work.
 
+## Soft freeze (v0.1.0 hardening)
+
+Until v0.1.0 ships, `staging` accepts only:
+
+- bug/security/reliability fixes;
+- scope-valid missing behavior (see the feature-discovery gate below);
+- CI/testing/deployment work;
+- required accessibility/UX fixes.
+
+New domain actors, new business Modules, large redesigns, and speculative infrastructure are rejected by default. Every PR into `staging` must complete the release-justification section of the PR template. Full rules: [`docs/release/v0.1.0-hardening/handoff/00_POST_MVP_MASTER_HANDOFF.md`](docs/release/v0.1.0-hardening/handoff/00_POST_MVP_MASTER_HANDOFF.md).
+
+### Feature-discovery gate
+
+Testing sometimes reveals missing behavior. Include it in v0.1.0 only when **all** are true:
+
+1. current MVP scope already implies the behavior;
+2. absence makes an existing workflow incomplete, unsafe, or misleading;
+3. no major new domain model is required;
+4. implementation scope is bounded;
+5. the regression surface is known;
+6. tests can be added.
+
+Everything else goes to the backlog unless the Lead explicitly expands release scope.
+
 ## Branches
 
 Use short descriptive branches, for example:
@@ -24,6 +48,10 @@ docs/setup-guide
 ## Commits
 
 Keep commits coherent. Avoid combining unrelated formatting, refactors and feature work unless they are necessary for the same change.
+
+## Database changes
+
+Accepted/shared migrations are forward-only. Never mutate a shared database without a version-controlled migration in `supabase/migrations/`. Before production, rehearse both paths: an empty database replaying the full migration history, and a release-like database applying only pending migrations.
 
 ## Required checks
 
