@@ -147,6 +147,10 @@ export const acceptStaffInvitationSchema = z.object({
   contactPhone: z.string().trim().optional(),
 });
 
+export const removeStaffMemberSchema = z.object({
+  membershipId: z.string().uuid("Invalid team member identifier"),
+});
+
 export type CreateIndependentProviderInput = z.infer<
   typeof createIndependentProviderSchema
 >;
@@ -154,6 +158,9 @@ export type CreateShopProviderInput = z.infer<typeof createShopProviderSchema>;
 export type StaffInvitationInput = z.infer<typeof staffInvitationSchema>;
 export type AcceptStaffInvitationSchemaInput = z.infer<
   typeof acceptStaffInvitationSchema
+>;
+export type RemoveStaffMemberSchemaInput = z.infer<
+  typeof removeStaffMemberSchema
 >;
 export type ProviderServiceModeInput = z.infer<
   typeof providerServiceModeSchema

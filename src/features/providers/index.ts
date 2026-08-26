@@ -4,10 +4,12 @@ export {
   createStaffInvitation,
   acceptStaffInvitation,
   revokeStaffInvitation,
+  removeStaffMember,
   setServiceModes,
   updateCurrentProviderUserProfile,
   updateProviderProfile,
   type CreateStaffInvitationResult,
+  type RemoveStaffMemberResult,
 } from "./commands";
 
 export {
@@ -29,12 +31,14 @@ export {
   createShopProviderSchema,
   staffInvitationSchema,
   acceptStaffInvitationSchema,
+  removeStaffMemberSchema,
   updateProviderProfileSchema,
   updateProviderUserProfileSchema,
   type CreateIndependentProviderInput,
   type CreateShopProviderInput,
   type StaffInvitationInput,
   type AcceptStaffInvitationSchemaInput,
+  type RemoveStaffMemberSchemaInput,
   type ProviderServiceModeInput,
   type UpdateProviderProfileSchemaInput,
   type UpdateProviderUserProfileSchemaInput,
