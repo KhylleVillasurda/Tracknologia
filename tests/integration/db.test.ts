@@ -3547,7 +3547,7 @@ describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
     try {
       const signInA = await signInTestUser(ownerA.email!, password);
       const signInB = await signInTestUser(ownerB.email!, password);
-      const providerA = await createProviderAs(signInA.client);
+      await createProviderAs(signInA.client);
       await createProviderAs(signInB.client);
 
       const invitation = await createInvitationAs(

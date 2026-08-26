@@ -317,7 +317,7 @@ export async function removeStaffMember(
 ): Promise<RemoveStaffMemberResult> {
   const supabase = client ?? (await createClient());
 
-  const context = await requireProviderRole(["OWNER"], supabase);
+  await requireProviderRole(["OWNER"], supabase);
 
   const parsed = removeStaffMemberSchema.safeParse(input);
   if (!parsed.success) {
