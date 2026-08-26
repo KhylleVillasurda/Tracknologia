@@ -17,6 +17,7 @@ Produce an immutable release candidate, prove it in a production-like environmen
 [ ] Database Integration required and green
 [ ] Docker Build green
 [ ] production config validation green
+[ ] trusted-ingress/public-abuse configuration verified in rehearsal
 [ ] UAT core flows accepted
 ```
 

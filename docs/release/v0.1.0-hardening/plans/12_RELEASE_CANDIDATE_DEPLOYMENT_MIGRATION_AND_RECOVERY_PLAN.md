@@ -133,7 +133,20 @@ verified sender
 production domain/TLS
 no test toggles
 no committed secrets
+SUPABASE_SERVICE_ROLE_KEY present (server-only)
+PUBLIC_ABUSE_HMAC_SECRET present, 32+ characters, shared across app instances
+PUBLIC_ABUSE_TRUSTED_PROXY_SECRET present, 32+ characters, different from the HMAC secret
+PUBLIC_ABUSE_SHARED_DEV_BUCKET not enabled outside local development
+trusted ingress strips incoming internal abuse-control headers and overwrites the client-IP header
+trusted ingress injects the proxy proof secret
+direct upstream access to the Next.js instance is unavailable
+public Tracking lookup succeeds through the real ingress path
+rate-limited public Tracking lookup is denied after exhausting its budget
 ```
+
+The public-abuse values implement the Plan 02 trust boundary; see
+`docs/SECURITY.md`. Rehearsal evidence for this contract feeds the Plan 14
+go/no-go gate.
 
 ## Promotion Gate
 
@@ -175,6 +188,7 @@ database write
 [ ] two unchanged full green cycles
 [ ] fresh rehearsal passes
 [ ] upgrade rehearsal passes
+[ ] trusted-ingress/public-abuse configuration contract verified in rehearsal
 [ ] backup/snapshot available
 [ ] restore procedure understood
 [ ] forward-fix vs rollback criteria documented
