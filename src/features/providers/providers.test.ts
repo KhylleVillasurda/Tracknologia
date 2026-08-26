@@ -9,6 +9,7 @@ import {
   staffInvitationSchema,
   acceptStaffInvitationSchema,
   providerServiceModesSchema,
+  removeStaffMemberSchema,
 } from "./schemas";
 import {
   hashInvitationToken,
@@ -17,6 +18,7 @@ import {
   insertStaffInvitationRecord,
   listTeamMembers,
   getPublicProviderProfile,
+  removeStaffMemberRecord,
 } from "./persistence";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -73,6 +75,12 @@ function createMockSupabase(options: {
       if (fn === "revoke_staff_invitation") {
         return Promise.resolve({
           data: true,
+          error: null,
+        });
+      }
+      if (fn === "remove_staff_member") {
+        return Promise.resolve({
+          data: options.rpcData ?? true,
           error: null,
         });
       }
@@ -274,6 +282,21 @@ describe("Providers Module — Schemas Validation", () => {
       ]).success,
     ).toBe(false);
   });
+
+  it("validates staff removal membership identifiers", () => {
+    expect(
+      removeStaffMemberSchema.safeParse({
+        membershipId: "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+      }).success,
+    ).toBe(true);
+
+    expect(
+      removeStaffMemberSchema.safeParse({ membershipId: "" }).success,
+    ).toBe(false);
+    expect(
+      removeStaffMemberSchema.safeParse({ membershipId: "not-a-uuid" }).success,
+    ).toBe(false);
+  });
 });
 
 describe("Providers Module — Persistence & Token Hashing", () => {
@@ -413,5 +436,31 @@ describe("Providers Module — Persistence & Token Hashing", () => {
       { mode: "DROP_OFF", details: null },
       { mode: "HOME_SERVICE", details: null },
     ]);
+  });
+
+  it("removeStaffMemberRecord calls remove_staff_member RPC and reports removal", async () => {
+    const mockClient = createMockSupabase({});
+
+    await expect(
+      removeStaffMemberRecord(
+        mockClient,
+        "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+      ),
+    ).resolves.toBe(true);
+
+    expect(mockClient.rpc).toHaveBeenCalledWith("remove_staff_member", {
+      p_membership_id: "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+    });
+  });
+
+  it("removeStaffMemberRecord reports a neutral false for not-found or non-STAFF targets", async () => {
+    const mockClient = createMockSupabase({ rpcData: false });
+
+    await expect(
+      removeStaffMemberRecord(
+        mockClient,
+        "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+      ),
+    ).resolves.toBe(false);
   });
 });

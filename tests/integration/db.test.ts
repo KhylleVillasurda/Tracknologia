@@ -3448,3 +3448,145 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     }
   });
 });
+
+describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
+  it("removes exactly one same-Provider STAFF membership and revokes access", async () => {
+    const adminClient = createAdminClient();
+    const owner = await createTestUser(adminClient);
+    const staff = await createTestUser(adminClient);
+
+    const ownerSignIn = await signInTestUser(owner.email!, password);
+    const provider = await createProviderAs(ownerSignIn.client);
+
+    try {
+      const invitation = await createInvitationAs(
+        ownerSignIn.client,
+        uniqueEmail("offboard-staff"),
+      );
+      const staffSignIn = await signInTestUser(staff.email!, password);
+      const accepted = assertSupabaseSuccess(
+        await acceptInvitationAs(staffSignIn.client, invitation.tokenHash),
+        "staff accepts invitation",
+      );
+      const staffMembershipId = (
+        Array.isArray(accepted.data) ? accepted.data[0] : accepted.data
+      ).membership_id;
+
+      // Staff can read Provider-private rows while active.
+      const beforeRemoval = assertSupabaseSuccess(
+        await staffSignIn.client
+          .from("provider_memberships")
+          .select("id")
+          .eq("provider_id", provider.providerId),
+        "active Staff reads Provider memberships",
+      );
+      expect(beforeRemoval.data!.length).toBe(2);
+
+      // A STAFF caller cannot perform offboarding.
+      const staffAttempt = await staffSignIn.client.rpc("remove_staff_member", {
+        p_membership_id: staffMembershipId,
+      });
+      expect(staffAttempt.error).toMatchObject({
+        message: /Only Provider Owners/,
+      });
+
+      const removal = assertSupabaseSuccess(
+        await ownerSignIn.client.rpc("remove_staff_member", {
+          p_membership_id: staffMembershipId,
+        }),
+        "Owner removes Staff",
+      );
+      const removalRow = Array.isArray(removal.data)
+        ? removal.data[0]
+        : removal.data;
+      expect(removalRow).toBe(true);
+
+      // The membership row is durably gone.
+      const afterRemoval = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_memberships")
+          .select("id, role")
+          .eq("provider_id", provider.providerId),
+        "read memberships after removal",
+      );
+      expect(afterRemoval.data).toEqual([
+        { id: expect.any(String), role: "OWNER" },
+      ]);
+
+      // Removed Staff immediately loses ProviderContext-backed access.
+      const deniedRead = await staffSignIn.client
+        .from("providers")
+        .select("id")
+        .eq("id", provider.providerId);
+      expect(deniedRead.data).toEqual([]);
+
+      // Removing an OWNER through this operation is refused.
+      const ownerSelfAttempt = await ownerSignIn.client.rpc(
+        "remove_staff_member",
+        { p_membership_id: provider.membershipId },
+      );
+      assertSupabaseSuccess(ownerSelfAttempt, "attempt to remove OWNER");
+      const ownerRow = Array.isArray(ownerSelfAttempt.data)
+        ? ownerSelfAttempt.data[0]
+        : ownerSelfAttempt.data;
+      expect(ownerRow).toBe(false);
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: [provider.providerId],
+        userIds: [owner.user.id, staff.user.id],
+      });
+    }
+  });
+
+  it("denies cross-Provider removal without revealing membership existence", async () => {
+    const adminClient = createAdminClient();
+    const ownerA = await createTestUser(adminClient);
+    const ownerB = await createTestUser(adminClient);
+    const staff = await createTestUser(adminClient);
+
+    try {
+      const signInA = await signInTestUser(ownerA.email!, password);
+      const signInB = await signInTestUser(ownerB.email!, password);
+      const providerA = await createProviderAs(signInA.client);
+      await createProviderAs(signInB.client);
+
+      const invitation = await createInvitationAs(
+        signInA.client,
+        uniqueEmail("cross-tenant-staff"),
+      );
+      const staffSignIn = await signInTestUser(staff.email!, password);
+      const accepted = assertSupabaseSuccess(
+        await acceptInvitationAs(staffSignIn.client, invitation.tokenHash),
+        "staff accepts invitation",
+      );
+      const staffMembershipId = (
+        Array.isArray(accepted.data) ? accepted.data[0] : accepted.data
+      ).membership_id;
+
+      const crossTenantAttempt = assertSupabaseSuccess(
+        await signInB.client.rpc("remove_staff_member", {
+          p_membership_id: staffMembershipId,
+        }),
+        "cross-Provider Owner attempts removal",
+      );
+      const crossRow = Array.isArray(crossTenantAttempt.data)
+        ? crossTenantAttempt.data[0]
+        : crossTenantAttempt.data;
+      expect(crossRow).toBe(false);
+
+      // The targeted membership still exists.
+      const stillPresent = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_memberships")
+          .select("id")
+          .eq("id", staffMembershipId),
+        "verify cross-Provider membership survived",
+      );
+      expect(stillPresent.data).toHaveLength(1);
+    } finally {
+      await cleanupFixture(adminClient, {
+        userIds: [ownerA.user.id, ownerB.user.id, staff.user.id],
+      });
+    }
+  });
+});
