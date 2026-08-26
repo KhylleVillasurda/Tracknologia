@@ -57,12 +57,14 @@ const KNOWN_UNAUTHENTICATED_ERROR_CODES = new Set([
   "invalid_refresh_token",
   "token_expired",
   "session_expired",
-  "bad_oauth_callback",
 ]);
 
 /**
  * Distinguishes expected unauthenticated session errors (e.g. missing or expired token)
  * from infrastructure/network failures (e.g. 500, network down, timeout, database connection failure).
+ *
+ * Fails closed: Unknown codes, generic HTTP 401s without matching known codes, 5xx outages,
+ * and database timeouts are classified as INFRASTRUCTURE_FAILURE, never as unauthenticated.
  */
 export function isUnauthenticatedAuthError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -78,7 +80,7 @@ export function isUnauthenticatedAuthError(error: unknown): boolean {
     return true;
   }
 
-  // Exact known Supabase auth error codes
+  // Exact known Supabase auth error codes on the deliberate session-invalid allow-list
   if (
     err.code &&
     KNOWN_UNAUTHENTICATED_ERROR_CODES.has(err.code.toLowerCase())
@@ -86,16 +88,7 @@ export function isUnauthenticatedAuthError(error: unknown): boolean {
     return true;
   }
 
-  // Status 401 specifically from Supabase Auth client errors
-  if (
-    err.status === 401 &&
-    (err.name === "AuthApiError" ||
-      err.name === "AuthInvalidTokenResponseError")
-  ) {
-    return true;
-  }
-
-  // Strict string checks for GoTrue known session-missing messages when code might be absent
+  // Strict string checks for GoTrue known session-missing messages when error code is omitted
   const msg = (err.message || "").toLowerCase();
   if (
     msg === "auth session missing!" ||
