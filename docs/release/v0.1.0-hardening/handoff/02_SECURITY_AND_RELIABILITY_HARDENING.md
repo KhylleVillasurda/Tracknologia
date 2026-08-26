@@ -96,9 +96,18 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 NEXT_PUBLIC_APP_URL
 RESEND_API_KEY
 RESEND_FROM_EMAIL
+SUPABASE_SERVICE_ROLE_KEY
+PUBLIC_ABUSE_HMAC_SECRET
+PUBLIC_ABUSE_TRUSTED_PROXY_SECRET
 ```
 
 Production app origin must be explicit HTTPS; no localhost fallback.
+
+The public-operation trust boundary (Plan 02) additionally requires: a trusted
+ingress that strips attacker-supplied internal abuse-control headers, sets the
+trusted client-IP header, injects the proxy proof, and blocks direct upstream
+access; `PUBLIC_ABUSE_SHARED_DEV_BUCKET` must never be active outside local
+development. See `docs/SECURITY.md`.
 
 ## E. Invitation lifecycle
 

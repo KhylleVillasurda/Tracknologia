@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ServiceMode } from "@/features/providers";
 import type { RepairStatus } from "@/features/repairs";
-import { createClient } from "@/lib/supabase/server";
+import { createPublicOperationClient } from "@/lib/supabase/service";
 
 import { lookupPublicRepairRecord } from "./persistence";
 import { trackingCodeSchema } from "./schemas";
@@ -86,7 +86,7 @@ export async function lookupRepairByTrackingCode(
     return null;
   }
 
-  const supabase = client ?? (await createClient());
+  const supabase = client ?? (await createPublicOperationClient());
   const record = await lookupPublicRepairRecord(supabase, parsedCode.data);
   if (!record) {
     return null;

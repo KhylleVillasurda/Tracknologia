@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createClient } from "@/lib/supabase/server";
+import { createPublicOperationClient } from "@/lib/supabase/service";
 
 import { persistSuccessfulTrackingView } from "./persistence";
 
@@ -11,7 +11,7 @@ export async function recordSuccessfulTrackingView(
   client?: SupabaseClient,
 ): Promise<boolean> {
   try {
-    const supabase = client ?? (await createClient());
+    const supabase = client ?? (await createPublicOperationClient());
     await persistSuccessfulTrackingView(supabase, trackingCode);
     return true;
   } catch {

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   after: vi.fn(),
   lookupRepairByTrackingCode: vi.fn(),
   recordSuccessfulTrackingView: vi.fn(),
+  checkRateLimit: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({ after: mocks.after }));
@@ -13,6 +14,9 @@ vi.mock("@/features/analytics", () => ({
 }));
 vi.mock("@/features/tracking", () => ({
   lookupRepairByTrackingCode: mocks.lookupRepairByTrackingCode,
+}));
+vi.mock("@/lib/rate-limit", () => ({
+  checkClientRateLimit: mocks.checkRateLimit,
 }));
 
 import { trackRepairAction } from "./actions";
@@ -41,6 +45,10 @@ function trackingFormData() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.checkRateLimit.mockResolvedValue({
+    allowed: true,
+    retryAfterSeconds: 0,
+  });
 });
 
 describe("trackRepairAction", () => {
@@ -88,5 +96,18 @@ describe("trackRepairAction", () => {
     ).resolves.toMatchObject({ outcome: "unavailable" });
     expect(mocks.after).not.toHaveBeenCalled();
     expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
+  });
+
+  it("maps a durable limit to a user-safe unavailable response", async () => {
+    mocks.checkRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 30,
+    });
+
+    await expect(
+      trackRepairAction(null, trackingFormData()),
+    ).resolves.toMatchObject({ outcome: "unavailable" });
+    expect(mocks.lookupRepairByTrackingCode).not.toHaveBeenCalled();
+    expect(mocks.after).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,7 @@ load baseline summary
 UAT summary
 backup/recovery owner + procedure
 production config validation result
+trusted-ingress/public-abuse configuration evidence (Plan 12 rehearsal)
 known limitations/release notes
 ```
 
@@ -84,6 +85,18 @@ accept -> exactly one Repair
 decline -> no Repair
 accept/decline races safe
 durable abuse protection
+```
+
+## Gate 5A — Public Abuse/Ingress Contract
+
+```text
+service-role key, HMAC secret, and proxy proof secret validated in production
+PUBLIC_ABUSE_SHARED_DEV_BUCKET not active outside local development
+trusted ingress strips/overwrites internal headers and injects proof
+direct upstream access unavailable
+public Tracking lookup and Request submission verified through real ingress
+budget denial observed after threshold
+anon/authenticated direct RPC execution denied
 ```
 
 ## Gate 6 — Repairs

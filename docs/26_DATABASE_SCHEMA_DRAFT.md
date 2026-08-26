@@ -33,6 +33,9 @@ Tracknologia core:
 
 Validation telemetry:
   tracking_events
+
+Abuse control:
+  public_operation_rate_limits
 ```
 
 ## Relationship sketch
@@ -195,14 +198,14 @@ Child domain rows (`repair_status_events`, `repair_updates`) derive authorizatio
 through `repairs.provider_id`. `tracking_events` is internal validation
 telemetry; Provider members and anonymous callers have no direct table access.
 
-Public Repair Request insertion and public Tracking lookup use intentionally limited policies and restricted server interfaces.
+Public Repair Request insertion and public Tracking lookup use intentionally limited policies and restricted server interfaces. EXECUTE on all public-operation RPCs is revoked from `PUBLIC`, `anon`, and `authenticated`; only `service_role` may execute them, from the server-only application client after durable abuse control passes.
 
-The successful-view observation function is a second narrow public execution
-surface, not a read surface. It returns no Repair data and does not grant table
+The successful-view observation function is a second narrow service-role
+execution surface, not a read surface. It returns no Repair data and does not grant table
 access.
 
 Feature 03 implements public submission through `submit_repair_request` only;
-anonymous roles have no direct Request/Repair/history table privileges.
+anonymous and authenticated roles have no direct Request/Repair/history table privileges.
 Authenticated members receive Provider-scoped reads. Repair detail mutation is
 limited to explicitly granted snapshot columns under an UPDATE policy; direct
 Repair creation, lifecycle columns, Status Events, identifiers, ownership, and
@@ -213,11 +216,27 @@ for atomic creation/history and locked lifecycle/history consistency. The
 when `service_mode` actually changes and serializes that check against Provider
 configuration replacement.
 
-Feature 05 implements public read access only through
-`lookup_public_repair(text)`. The `SECURITY DEFINER` function bounds and
-normalizes input, uses the existing unique Tracking Code index, returns an
-explicit eight-column projection, and nests at most 25 Customer Update
-message/timestamp pairs. It does not depend on `accepting_requests`, because
-closing intake must not hide an existing Repair. Execute is granted to
-`anon`, `authenticated`, and `service_role` only after revoking the default
-`PUBLIC` grant; anonymous raw table privileges remain denied.
+Feature 05 implements public read access only through the Tracking Server
+Action calling `lookup_public_repair(text)`. The `SECURITY DEFINER` function
+bounds and normalizes input, uses the existing unique Tracking Code index,
+returns an explicit eight-column projection, and nests at most 25 Customer
+Update message/timestamp pairs. It does not depend on `accepting_requests`,
+because closing intake must not hide an existing Repair. Execute is granted to
+`service_role` only after revoking the default `PUBLIC` grant; anonymous raw
+table privileges remain denied.
+
+### Public-operation abuse control
+
+- `public_operation_rate_limits` stores one bounded fixed-window counter per
+  `(operation, actor_key)`, where `operation` is restricted to
+  `tracking_lookup | repair_request_submit` and `actor_key` must match a
+  64-character lowercase hex digest.
+- No raw IP, Tracking Code, or customer data is stored; actor keys are
+  server-keyed HMAC digests derived by the application.
+- RLS is enabled and all table privileges are revoked from `PUBLIC`, `anon`,
+  and `authenticated`; `service_role` receives SELECT only.
+- `check_public_operation_rate_limit(...)` (`SECURITY DEFINER`,
+  `search_path = public, pg_temp`) validates inputs, atomically increments or
+  resets the window via upsert, opportunistically prunes expired rows, and
+  returns the allow/retry decision in one statement. EXECUTE is granted to
+  `service_role` only.

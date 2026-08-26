@@ -18,7 +18,22 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 NEXT_PUBLIC_APP_URL
 RESEND_API_KEY
 RESEND_FROM_EMAIL
+SUPABASE_SERVICE_ROLE_KEY
+PUBLIC_ABUSE_HMAC_SECRET
+PUBLIC_ABUSE_TRUSTED_PROXY_SECRET
 ```
+
+The last three values come from the Plan 02 public-operation trust boundary:
+public Tracking/Repair Request operations run under the server-only
+service-role credential, consume durable PostgreSQL abuse budgets keyed by an
+HMAC digest, and accept client IP metadata only from a trusted ingress that
+strips attacker-supplied internal headers, sets the trusted client-IP header,
+injects the proxy proof, and blocks direct upstream access. The exact
+hosting/ingress product is decided by the deployment plan; the contract itself
+is mandatory now.
+
+`PUBLIC_ABUSE_SHARED_DEV_BUCKET=true` is a local-development-only escape hatch
+and must be rejected (fail fast) outside explicit local development.
 
 Production app origin must be explicit HTTPS; localhost fallback is not acceptable in production.
 
@@ -35,6 +50,15 @@ Rules:
 - Required Resend values must be present when production email paths are enabled.
 - Never expose `RESEND_API_KEY` to client bundles.
 - Public Supabase values may remain public by design.
+- Production/staging require `SUPABASE_SERVICE_ROLE_KEY`,
+  `PUBLIC_ABUSE_HMAC_SECRET`, and `PUBLIC_ABUSE_TRUSTED_PROXY_SECRET`;
+  `PUBLIC_ABUSE_HMAC_SECRET` and `PUBLIC_ABUSE_TRUSTED_PROXY_SECRET` must each
+  contain at least 32 characters and must not be equal to each other.
+- `PUBLIC_ABUSE_SHARED_DEV_BUCKET=true` fails validation in any non-local
+  environment.
+- The trusted-ingress contract (header stripping/overwrite, proof injection,
+  no direct upstream access) is validated for the selected deployment platform;
+  see `docs/SECURITY.md` for the full contract.
 
 ### Phase 2 — Remove production fallbacks
 
@@ -88,10 +112,15 @@ CI/deployment validation script if appropriate
 ```text
 production missing each required variable -> validation failure
 production HTTP/localhost NEXT_PUBLIC_APP_URL -> validation failure
+production missing service-role/HMAC/proxy-proof secret -> validation failure
+production PUBLIC_ABUSE_SHARED_DEV_BUCKET=true -> validation rejection
+production equal HMAC/proxy-proof secrets -> validation failure
 local development fallback remains explicit if currently supported
 Resend failure -> safe non-success result
 no raw invitation token in non-development logs
 password reset uses explicit production origin
+public Tracking lookup and Repair Request submission succeed end-to-end
+  against the validated production configuration (ingress proof present)
 ```
 
 ## Acceptance Criteria
@@ -100,6 +129,8 @@ password reset uses explicit production origin
 [ ] all required production config validates explicitly
 [ ] production app origin is explicit HTTPS
 [ ] no production localhost fallback
+[ ] public-abuse secrets and trusted-ingress contract validate per Plan 02
+[ ] PUBLIC_ABUSE_SHARED_DEV_BUCKET=true is rejected outside local development
 [ ] Resend missing/invalid config fails safely
 [ ] invitation/email failure does not corrupt lifecycle
 [ ] no secrets/raw invitation credentials logged

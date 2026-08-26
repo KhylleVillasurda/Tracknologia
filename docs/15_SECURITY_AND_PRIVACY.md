@@ -183,8 +183,11 @@ clear, while PostgreSQL repeats changed-mode support at write time.
 
 Anonymous callers have no direct `SELECT`, `INSERT`, `UPDATE`, or `DELETE`
 privileges on `repair_requests`, `repairs`, or `repair_status_events`.
-`submit_repair_request` is the only anonymous mutation surface. It is
-`SECURITY DEFINER` with `search_path = public, pg_temp`, returns only Request
+`submit_repair_request` is a narrow `SECURITY DEFINER` mutation surface with
+EXECUTE revoked from `anon`, `authenticated`, and `PUBLIC`; only the
+server-only service-role client may execute it, from the public submission
+Server Action after durable abuse control passes. It has
+`search_path = public, pg_temp`, returns only Request
 Reference and submission time, and rechecks:
 
 - Provider exists and currently accepts Requests;
@@ -193,8 +196,7 @@ Reference and submission time, and rechecks:
 
 The operation holds a shared Provider-row lock so profile/mode changes cannot
 race the availability check. No Repair or private Provider row is returned.
-Application/edge rate limiting remains required before broad hostile-Internet
-exposure; CAPTCHA is deferred until observed abuse warrants it.
+CAPTCHA remains deferred until observed abuse warrants it.
 
 ## Provider Request decisions
 
@@ -209,10 +211,13 @@ one initial Status Event, and one terminal Request state.
 Tracking Codes must be difficult to enumerate. Do not use sequential Ticket Numbers as the public credential.
 
 Public lookup returns a dedicated `PublicRepairView`, never a complete Repair
-row. `lookup_public_repair(text)` is the only anonymous database lookup surface.
-It is `SECURITY DEFINER`, fixes `search_path`, rejects oversized/malformed input,
+row. `lookup_public_repair(text)` is a `SECURITY DEFINER` function with EXECUTE
+revoked from `anon`, `authenticated`, and `PUBLIC`; only the server-only
+service-role client may execute it, from the Tracking Server Action after
+durable abuse control passes.
+It fixes `search_path`, rejects oversized/malformed input,
 uses an explicit return-column allow-list, and caps nested Customer Updates at
-25 message/timestamp pairs. Anonymous roles retain no direct `SELECT` privilege
+25 message/timestamp pairs. Anonymous and authenticated roles retain no direct `SELECT` privilege
 on `providers`, `repairs`, `repair_updates`, or `repair_status_events`.
 
 The Tracking Module rejects raw input longer than 128 characters before
@@ -233,9 +238,11 @@ Never expose:
 - Provider-private information;
 - privileged audit data.
 
-Apply durable rate limiting before broad public exposure. It must protect the
-direct Supabase RPC as well as the Next.js page; a process-memory limiter at the
-web route alone is insufficient. Analytics failure must not make lookup
+Public exposure is protected by durable, atomic abuse control: the public
+Server Actions atomically consume shared PostgreSQL budgets (keyed only by
+opaque HMAC digests) before invoking these RPCs, and direct `anon`/
+`authenticated` execution of the RPCs remains revoked. See `docs/SECURITY.md`
+for the full trust boundary. Analytics failure must not make lookup
 availability or latency depend on Feature 06. The `/track` Server Action keeps
 the submitted code server-side, schedules the observation with Next.js
 `after()`, and returns no credential or Analytics state to the browser.
@@ -247,16 +254,19 @@ Anonymous and authenticated roles have no direct SELECT/INSERT/UPDATE/DELETE
 privileges or RLS policies on it. Service-role/internal reporting access remains
 server-side.
 
-The public `record_successful_tracking_view(text)` function is intentionally
+The `record_successful_tracking_view(text)` function is intentionally
 narrow: it bounds and normalizes the credential, resolves a real Repair
 internally, inserts only `repair_id` plus server time, and returns no Repair or
 existence detail. It fixes `search_path` as a `SECURITY DEFINER` function.
+EXECUTE is revoked from `anon`, `authenticated`, and `PUBLIC`; only the
+server-only service-role client may execute it.
 
 Telemetry never stores or logs customer identity/contact, Provider snapshots,
 the Tracking Code, IP addresses, user agents, cookies, fingerprints, Auth ids,
 tokens, or arbitrary metadata. Repeated views are raw observations, not unique
-Customer identities. The same durable public abuse controls required for
-Tracking must cover the observation RPC before broad production exposure.
+Customer identities. Observation inherits the successful Tracking lookup
+budget: it is scheduled at most once, after one successful budgeted lookup,
+and adds no second blocking limiter to the Tracking response path.
 
 ## Secrets
 

@@ -63,3 +63,9 @@ including over-128-byte neutral observation input, exact stored column shape,
 repeated raw views versus distinct-Repair adoption, and both Repair origins. Apply
 `20260825010000_add_tracking_analytics.sql` through a fresh reset before running
 that coverage.
+
+Plan 02 database coverage also verifies the durable public-operation limiter's
+exact concurrent threshold, shared state across separate service clients,
+operation isolation, expiry reset, bounded cleanup, opaque stored actor keys,
+and denial of limiter/public-operation RPC execution to both `anon` and
+authenticated roles.
