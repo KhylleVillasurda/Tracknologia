@@ -1,24 +1,57 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findMembershipByUserId } from "./persistence";
 import {
   AuthError,
+  isUnauthenticatedAuthError,
   type AuthenticatedUser,
   type ProviderContext,
   type ProviderRole,
 } from "./types";
 
-export async function getUser(
-  client?: SupabaseClient,
+async function resolveUserFromSupabase(
+  supabase: SupabaseClient,
 ): Promise<AuthenticatedUser | null> {
-  const supabase = client ?? (await createClient());
+  let result;
+  try {
+    result = await supabase.auth.getUser();
+  } catch (err) {
+    console.error("[AUTH_INFRASTRUCTURE_FAILURE] getUser threw exception", {
+      message: err instanceof Error ? err.message : String(err),
+      timestamp: new Date().toISOString(),
+    });
+    throw new AuthError(
+      "Authentication service unavailable",
+      "INFRASTRUCTURE_FAILURE",
+      err,
+    );
+  }
+
   const {
     data: { user },
     error,
-  } = await supabase.auth.getUser();
+  } = result;
 
-  if (error || !user) {
+  if (error) {
+    if (isUnauthenticatedAuthError(error)) {
+      return null;
+    }
+    console.error("[AUTH_INFRASTRUCTURE_FAILURE] getUser returned error", {
+      message: error.message,
+      status: (error as { status?: number }).status,
+      name: error.name,
+      timestamp: new Date().toISOString(),
+    });
+    throw new AuthError(
+      "Authentication service unavailable",
+      "INFRASTRUCTURE_FAILURE",
+      error,
+    );
+  }
+
+  if (!user) {
     return null;
   }
 
@@ -27,6 +60,54 @@ export async function getUser(
     email: user.email ?? null,
     userMetadata: user.user_metadata,
   };
+}
+
+async function resolveProviderContextInternal(
+  supabase: SupabaseClient,
+  user: AuthenticatedUser | null,
+): Promise<ProviderContext | null> {
+  if (!user) {
+    return null;
+  }
+
+  const membership = await findMembershipByUserId(supabase, user.id);
+  if (!membership) {
+    return null;
+  }
+
+  return {
+    userId: user.id,
+    providerId: membership.providerId,
+    providerName: membership.providerName,
+    providerType: membership.providerType,
+    role: membership.role,
+    email: user.email,
+  };
+}
+
+// Request-scoped memoized resolvers for the default server request lifecycle
+const getRequestScopedUser = cache(
+  async (): Promise<AuthenticatedUser | null> => {
+    const supabase = await createClient();
+    return resolveUserFromSupabase(supabase);
+  },
+);
+
+const getRequestScopedProviderContext = cache(
+  async (): Promise<ProviderContext | null> => {
+    const supabase = await createClient();
+    const user = await getRequestScopedUser();
+    return resolveProviderContextInternal(supabase, user);
+  },
+);
+
+export async function getUser(
+  client?: SupabaseClient,
+): Promise<AuthenticatedUser | null> {
+  if (client) {
+    return resolveUserFromSupabase(client);
+  }
+  return getRequestScopedUser();
 }
 
 export async function requireUser(
@@ -42,54 +123,52 @@ export async function requireUser(
 export async function getProviderContext(
   client?: SupabaseClient,
 ): Promise<ProviderContext | null> {
-  const supabase = client ?? (await createClient());
-  const user = await getUser(supabase);
-
-  if (!user) {
-    return null;
+  if (client) {
+    const user = await resolveUserFromSupabase(client);
+    return resolveProviderContextInternal(client, user);
   }
-
-  const membership = await findMembershipByUserId(supabase, user.id);
-  if (!membership) {
-    return null;
-  }
-
-  return {
-    userId: user.id,
-    providerId: membership.providerId,
-    providerName: membership.providerName,
-    providerType: membership.providerType,
-    role: membership.role,
-    email: user.email,
-  };
+  return getRequestScopedProviderContext();
 }
 
 /**
  * Resolves the trusted ProviderContext for the authenticated user.
  * FAILS CLOSED: Throws AuthError('NO_MEMBERSHIP') if the user has no active Provider membership.
+ * Throws AuthError('UNAUTHENTICATED') if the user is unauthenticated.
+ * Throws AuthError('AMBIGUOUS_PROVIDER_CONTEXT') if multiple memberships exist.
+ * Throws AuthError('INFRASTRUCTURE_FAILURE') if authentication or database query fails.
  */
 export async function requireProviderContext(
   client?: SupabaseClient,
 ): Promise<ProviderContext> {
-  const supabase = client ?? (await createClient());
-  const user = await requireUser(supabase);
+  const user = await requireUser(client);
 
-  const membership = await findMembershipByUserId(supabase, user.id);
-  if (!membership) {
+  if (client) {
+    const membership = await findMembershipByUserId(client, user.id);
+    if (!membership) {
+      throw new AuthError(
+        "No provider membership found for user",
+        "NO_MEMBERSHIP",
+      );
+    }
+    return {
+      userId: user.id,
+      providerId: membership.providerId,
+      providerName: membership.providerName,
+      providerType: membership.providerType,
+      role: membership.role,
+      email: user.email,
+    };
+  }
+
+  const context = await getRequestScopedProviderContext();
+  if (!context) {
     throw new AuthError(
       "No provider membership found for user",
       "NO_MEMBERSHIP",
     );
   }
 
-  return {
-    userId: user.id,
-    providerId: membership.providerId,
-    providerName: membership.providerName,
-    providerType: membership.providerType,
-    role: membership.role,
-    email: user.email,
-  };
+  return context;
 }
 
 export async function requireProviderRole(

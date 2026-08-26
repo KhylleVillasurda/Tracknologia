@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isUnauthenticatedAuthError } from "@/features/auth/types";
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -37,6 +38,7 @@ export async function proxy(request: NextRequest) {
   // Refresh auth token
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
 
   const isAuthRoute =
@@ -46,8 +48,12 @@ export async function proxy(request: NextRequest) {
 
   const isDashboardRoute = request.nextUrl.pathname.startsWith("/dashboard");
 
+  // If there is an infrastructure failure from Supabase Auth, do not treat as logout/redirect
+  const isDefinitelyUnauthenticated =
+    !user && (!error || isUnauthenticatedAuthError(error));
+
   // Coarse route redirects (defense in depth is still in feature interfaces + RLS)
-  if (!user && isDashboardRoute) {
+  if (isDefinitelyUnauthenticated && isDashboardRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("redirectTo", request.nextUrl.pathname);

@@ -1,4 +1,10 @@
-import { getUser, getProviderContext } from "@/features/auth";
+import {
+  getUser,
+  getProviderContext,
+  AuthError,
+  type AuthenticatedUser,
+  type ProviderContext,
+} from "@/features/auth";
 import { signOutAction } from "@/app/(auth)/actions";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -9,12 +15,72 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getUser();
+  let user: AuthenticatedUser | null = null;
+  let context: ProviderContext | null = null;
+
+  try {
+    user = await getUser();
+    if (user) {
+      context = await getProviderContext();
+    }
+  } catch (err) {
+    if (err instanceof AuthError) {
+      if (err.code === "INFRASTRUCTURE_FAILURE") {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4 bg-background text-foreground">
+            <div className="max-w-md w-full p-6 border border-border rounded-lg shadow-xs bg-card space-y-4 text-center">
+              <h2 className="text-xl font-bold text-foreground">
+                Service Temporarily Unavailable
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                We encountered a temporary issue verifying your provider
+                session. Your session has been preserved. Please refresh to try
+                again.
+              </p>
+              <div className="pt-2 flex justify-center gap-3">
+                <a
+                  href="/dashboard"
+                  className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground px-4 py-2 hover:bg-primary/90 transition-colors"
+                >
+                  Retry
+                </a>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (err.code === "AMBIGUOUS_PROVIDER_CONTEXT") {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4 bg-background text-foreground">
+            <div className="max-w-md w-full p-6 border border-border rounded-lg shadow-xs bg-card space-y-4 text-center">
+              <h2 className="text-xl font-bold text-foreground">
+                Multiple Provider Accounts Found
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Your account is associated with multiple provider profiles.
+                Multi-provider switching is currently restricted. Please contact
+                support or your workshop administrator.
+              </p>
+              <div className="pt-2 flex justify-center">
+                <form action={signOutAction}>
+                  <Button variant="outline" size="sm" type="submit">
+                    Sign Out
+                  </Button>
+                </form>
+              </div>
+            </div>
+          </div>
+        );
+      }
+    }
+    throw err;
+  }
+
   if (!user) {
     redirect("/login");
   }
 
-  const context = await getProviderContext();
   if (!context) {
     redirect("/onboarding");
   }
