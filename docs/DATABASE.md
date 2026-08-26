@@ -257,6 +257,10 @@ npx supabase db push
   - `create_provider_with_owner_and_modes(...)`: Composes the accepted creation procedure with description/request configuration and Service Mode replacement in the same transaction.
   - `set_provider_service_modes(service_modes)`: Owner-only atomic replacement of repeating Service Mode configuration, serialized with a Provider-row lock.
   - `accept_staff_invitation(token_hash, display_name, contact_phone)`: Transactionally locks invitation, verifies SHOP provider and single active membership invariant, creates person profile and `STAFF` membership, and marks token accepted.
+  - `remove_staff_member(membership_id)`: OWNER-only Staff offboarding that
+    locks the target membership, removes exactly one same-Provider `STAFF`
+    row, refuses OWNER targets, and returns a neutral `false` for
+    not-found/cross-Provider/non-STAFF targets.
   - `submit_repair_request(...)`: Public allow-listed submission that locks the
     Provider configuration and verifies current Request availability/mode.
   - `decline_repair_request(request_id)`: Provider-authorized terminal decline

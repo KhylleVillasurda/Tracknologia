@@ -126,6 +126,20 @@ OWNER invites -> Staff accepts -> permitted access
 -> OWNER removes -> Staff next protected navigation/action is denied
 ```
 
+## E2E Evidence Status
+
+The Staff lifecycle E2E (`invite -> accept -> access -> remove -> denied`) is
+**deferred**: the repository has no executable Playwright harness during this
+cycle (Playwright introduction is governed by Plan 07). The strongest currently
+supported equivalent regression ships with this plan instead:
+
+- feature-interface authorization tests for `Providers.removeStaffMember(...)`; and
+- real PostgreSQL/RLS coverage proving invite -> accept -> permitted access ->
+  OWNER removes -> removed STAFF cannot read Provider data or perform Repair
+  mutations on subsequent requests.
+
+Do not report the lifecycle E2E checkbox as automated PASS until Plan 07 lands.
+
 ## Database Implications
 
 A migration is required only if the existing grants/RLS cannot express the safe deletion/transaction. If adding a function, keep it narrow and `SECURITY DEFINER` with explicit `search_path`, revoke `PUBLIC`, and grant only authenticated execution.

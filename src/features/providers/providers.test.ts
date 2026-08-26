@@ -1,7 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // Mock server-only in test environment
 vi.mock("server-only", () => ({}));
+
+vi.mock("@/features/auth", () => ({
+  requireProviderRole: vi.fn(),
+  requireUser: vi.fn(),
+}));
+
+vi.mock("@/lib/email/client", () => ({
+  sendStaffInviteEmail: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: vi.fn(),
+}));
+
+vi.mock("./persistence", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./persistence")>()),
+  removeStaffMemberRecord: vi.fn(),
+}));
 
 import {
   createIndependentProviderSchema,
@@ -9,6 +27,7 @@ import {
   staffInvitationSchema,
   acceptStaffInvitationSchema,
   providerServiceModesSchema,
+  removeStaffMemberSchema,
 } from "./schemas";
 import {
   hashInvitationToken,
@@ -17,8 +36,31 @@ import {
   insertStaffInvitationRecord,
   listTeamMembers,
   getPublicProviderProfile,
+  removeStaffMemberRecord as mockedRemoveStaffMemberRecord,
 } from "./persistence";
+import { removeStaffMember } from "./commands";
+import { requireProviderRole } from "@/features/auth";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+// The unmocked original is used directly by persistence-behavior tests below,
+// while the mocked export above backs the feature-interface tests.
+const { removeStaffMemberRecord: realRemoveStaffMemberRecord } =
+  await vi.importActual<typeof import("./persistence")>("./persistence");
+
+const mockRequireProviderRole = vi.mocked(requireProviderRole);
+const mockRemoveStaffMemberRecord = vi.mocked(mockedRemoveStaffMemberRecord);
+
+function ownerContext() {
+  return {
+    userId: "user-owner-1",
+    providerId: "prov-shop-1",
+    role: "OWNER",
+    providerType: "SHOP",
+    providerName: "Apex Electronics",
+  } as unknown as Awaited<ReturnType<typeof requireProviderRole>>;
+}
+
+const membershipId = "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b";
 
 function createMockSupabase(options: {
   rpcData?: unknown;
@@ -73,6 +115,12 @@ function createMockSupabase(options: {
       if (fn === "revoke_staff_invitation") {
         return Promise.resolve({
           data: true,
+          error: null,
+        });
+      }
+      if (fn === "remove_staff_member") {
+        return Promise.resolve({
+          data: options.rpcData ?? true,
           error: null,
         });
       }
@@ -274,6 +322,21 @@ describe("Providers Module — Schemas Validation", () => {
       ]).success,
     ).toBe(false);
   });
+
+  it("validates staff removal membership identifiers", () => {
+    expect(
+      removeStaffMemberSchema.safeParse({
+        membershipId: "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+      }).success,
+    ).toBe(true);
+
+    expect(
+      removeStaffMemberSchema.safeParse({ membershipId: "" }).success,
+    ).toBe(false);
+    expect(
+      removeStaffMemberSchema.safeParse({ membershipId: "not-a-uuid" }).success,
+    ).toBe(false);
+  });
 });
 
 describe("Providers Module — Persistence & Token Hashing", () => {
@@ -413,5 +476,82 @@ describe("Providers Module — Persistence & Token Hashing", () => {
       { mode: "DROP_OFF", details: null },
       { mode: "HOME_SERVICE", details: null },
     ]);
+  });
+
+  it("removeStaffMemberRecord calls remove_staff_member RPC and reports removal", async () => {
+    const mockClient = createMockSupabase({});
+
+    await expect(
+      realRemoveStaffMemberRecord(
+        mockClient,
+        "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+      ),
+    ).resolves.toBe(true);
+
+    expect(mockClient.rpc).toHaveBeenCalledWith("remove_staff_member", {
+      p_membership_id: "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+    });
+  });
+
+  it("removeStaffMemberRecord reports a neutral false for not-found or non-STAFF targets", async () => {
+    const mockClient = createMockSupabase({ rpcData: false });
+
+    await expect(
+      realRemoveStaffMemberRecord(
+        mockClient,
+        "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
+      ),
+    ).resolves.toBe(false);
+  });
+});
+
+describe("Providers Module — removeStaffMember feature interface", () => {
+  beforeEach(() => {
+    mockRequireProviderRole.mockReset();
+    mockRemoveStaffMemberRecord.mockReset();
+  });
+
+  it("authorized OWNER reaches persistence and reports removal", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockRemoveStaffMemberRecord.mockResolvedValue(true);
+
+    const client = {} as SupabaseClient;
+    await expect(removeStaffMember({ membershipId }, client)).resolves.toEqual({
+      removed: true,
+    });
+
+    expect(mockRemoveStaffMemberRecord).toHaveBeenCalledWith(
+      client,
+      membershipId,
+    );
+  });
+
+  it("rejects non-OWNER callers before persistence", async () => {
+    mockRequireProviderRole.mockRejectedValue(
+      new Error("UNAUTHORIZED_ROLE: OWNER role is required"),
+    );
+
+    await expect(removeStaffMember({ membershipId })).rejects.toThrow(
+      /UNAUTHORIZED_ROLE/,
+    );
+    expect(mockRemoveStaffMemberRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid membership identifier before persistence", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+
+    await expect(
+      removeStaffMember({ membershipId: "not-a-uuid" }),
+    ).rejects.toThrow(/Invalid team member identifier/);
+    expect(mockRemoveStaffMemberRecord).not.toHaveBeenCalled();
+  });
+
+  it("preserves the neutral false result for ineligible targets", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockRemoveStaffMemberRecord.mockResolvedValue(false);
+
+    await expect(removeStaffMember({ membershipId })).resolves.toEqual({
+      removed: false,
+    });
   });
 });

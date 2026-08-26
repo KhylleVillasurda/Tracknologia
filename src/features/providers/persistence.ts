@@ -351,6 +351,21 @@ export async function revokeStaffInvitation(
   }
 }
 
+export async function removeStaffMemberRecord(
+  supabase: SupabaseClient,
+  membershipId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("remove_staff_member", {
+    p_membership_id: membershipId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to remove staff member: ${error.message}`);
+  }
+
+  return data === true;
+}
+
 export async function getProviderById(
   supabase: SupabaseClient,
   providerId: string,

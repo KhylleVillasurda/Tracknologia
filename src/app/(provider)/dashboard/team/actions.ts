@@ -2,6 +2,7 @@
 
 import {
   createStaffInvitation,
+  removeStaffMember,
   revokeStaffInvitation,
 } from "@/features/providers";
 import { createClient } from "@/lib/supabase/server";
@@ -16,6 +17,11 @@ export type InviteStaffState = {
   token?: string;
   inviteUrl?: string;
   emailDeliveryFailed?: boolean;
+};
+
+export type RemoveStaffState = {
+  success?: string;
+  error?: string;
 };
 
 export async function inviteStaffAction(
@@ -74,5 +80,28 @@ export async function revokeStaffAction(
     return {
       error: "Unable to revoke invitation",
     };
+  }
+}
+
+export async function removeStaffAction(
+  _prevState: RemoveStaffState | null,
+  formData: FormData,
+): Promise<RemoveStaffState> {
+  const supabase = await createClient();
+  const membershipId = formData.get("membershipId")?.toString() ?? "";
+
+  try {
+    const result = await removeStaffMember({ membershipId }, supabase);
+
+    revalidatePath("/dashboard/team");
+
+    if (!result.removed) {
+      return { error: "This team member can no longer be removed" };
+    }
+
+    return { success: "Team member removed" };
+  } catch (error) {
+    console.error("Staff removal failed", error);
+    return { error: "Unable to remove this team member right now" };
   }
 }

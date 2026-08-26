@@ -8,6 +8,7 @@ import {
   createProviderWithOwner,
   hashInvitationToken,
   insertStaffInvitationRecord,
+  removeStaffMemberRecord,
   replaceProviderServiceModes,
   revokeStaffInvitation as revokeStaffInvitationPersistence,
   updateProviderProfileRecord,
@@ -18,6 +19,7 @@ import {
   createIndependentProviderSchema,
   createShopProviderSchema,
   providerServiceModesSchema,
+  removeStaffMemberSchema,
   staffInvitationSchema,
   updateProviderProfileSchema,
   updateProviderUserProfileSchema,
@@ -298,4 +300,36 @@ export async function revokeStaffInvitation(
   await requireProviderRole(["OWNER"], supabase);
 
   return revokeStaffInvitationPersistence(supabase, invitationId);
+}
+
+export interface RemoveStaffMemberResult {
+  removed: boolean;
+}
+
+/**
+ * Removes one STAFF membership from the caller's own Provider.
+ * Not-found, cross-Provider, and non-STAFF targets collapse into a neutral
+ * `removed: false` result so membership existence is never revealed.
+ */
+export async function removeStaffMember(
+  input: { membershipId: string },
+  client?: SupabaseClient,
+): Promise<RemoveStaffMemberResult> {
+  const supabase = client ?? (await createClient());
+
+  await requireProviderRole(["OWNER"], supabase);
+
+  const parsed = removeStaffMemberSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid team member identifier",
+    );
+  }
+
+  const removed = await removeStaffMemberRecord(
+    supabase,
+    parsed.data.membershipId,
+  );
+
+  return { removed };
 }
