@@ -1,7 +1,11 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { inviteStaffAction, revokeStaffAction } from "../actions";
+import {
+  inviteStaffAction,
+  removeStaffAction,
+  revokeStaffAction,
+} from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,7 +41,14 @@ export function TeamClient({
     revokeStaffAction,
     null,
   );
+  const [removeState, removeFormAction, isRemovePending] = useActionState(
+    removeStaffAction,
+    null,
+  );
   const [copied, setCopied] = useState(false);
+  const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(
+    null,
+  );
 
   if (!isShop) {
     return (
@@ -187,6 +198,18 @@ export function TeamClient({
         </div>
       )}
 
+      {isOwner && removeState?.success && (
+        <div className="rounded-xl border border-primary/20 bg-primary/10 p-3 text-xs font-medium text-primary">
+          {removeState.success}
+        </div>
+      )}
+
+      {isOwner && removeState?.error && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs font-medium text-destructive">
+          {removeState.error}
+        </div>
+      )}
+
       {/* 2. Pending Invitations (No credentials / hashes displayed) */}
       {isOwner && invitations.length > 0 && (
         <Card>
@@ -289,6 +312,57 @@ export function TeamClient({
                   >
                     {member.role === "OWNER" ? "Shop Owner" : "Staff"}
                   </span>
+
+                  {isOwner && member.role === "STAFF" && (
+                    <div className="shrink-0">
+                      {confirmingRemovalId === member.membershipId ? (
+                        <form
+                          action={removeFormAction}
+                          className="flex items-center gap-1"
+                        >
+                          <input
+                            type="hidden"
+                            name="membershipId"
+                            value={member.membershipId}
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            Remove access?
+                          </span>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            type="submit"
+                            disabled={isRemovePending}
+                            className="text-xs"
+                          >
+                            {isRemovePending ? "Removing..." : "Confirm"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            type="button"
+                            disabled={isRemovePending}
+                            className="text-xs"
+                            onClick={() => setConfirmingRemovalId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </form>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          className="text-xs text-destructive hover:text-destructive"
+                          onClick={() =>
+                            setConfirmingRemovalId(member.membershipId)
+                          }
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
