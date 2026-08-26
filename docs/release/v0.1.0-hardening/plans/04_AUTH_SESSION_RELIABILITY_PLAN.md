@@ -98,11 +98,11 @@ Measure a representative dashboard request before/after and confirm repeated Pro
 ## Acceptance Criteria
 
 ```text
-[ ] five required auth/context outcomes remain distinguishable
-[ ] infrastructure failure is never represented as logout
-[ ] ambiguous membership fails closed
-[ ] public accountless routes avoid unnecessary auth resolution
-[ ] request-local context reuse is used where practical and safe
-[ ] no new distributed cache
-[ ] tests cover each outcome
+[x] five required auth/context outcomes remain distinguishable
+[x] infrastructure failure is never represented as logout
+[x] ambiguous membership fails closed
+[x] public accountless routes avoid unnecessary auth resolution
+[x] request-local context reuse is used where practical and safe
+[x] no new distributed cache
+[x] tests cover each outcome
 ```

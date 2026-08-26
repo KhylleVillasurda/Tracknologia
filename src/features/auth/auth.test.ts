@@ -12,10 +12,13 @@ import {
 } from "./context";
 import { loginSchema, registerSchema, forgotPasswordSchema } from "./schemas";
 import { findMembershipByUserId } from "./persistence";
+import { AuthError, isUnauthenticatedAuthError } from "./types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 function createMockSupabase(options: {
   user?: { id: string; email?: string } | null;
+  authError?: unknown;
+  queryError?: { message: string; code?: string } | null;
   memberships?: Array<{
     id: string;
     provider_id: string;
@@ -58,19 +61,26 @@ function createMockSupabase(options: {
         ]
       : [];
 
+  const defaultAuthError = options.user
+    ? null
+    : { name: "AuthSessionMissingError", message: "Auth session missing!" };
+
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
         data: { user: options.user ?? null },
-        error: options.user ? null : new Error("Not logged in"),
+        error:
+          options.authError !== undefined
+            ? options.authError
+            : defaultAuthError,
       }),
     },
     from: vi.fn().mockImplementation(() => {
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockResolvedValue({
-            data: membershipArray,
-            error: null,
+            data: options.queryError ? null : membershipArray,
+            error: options.queryError ?? null,
           }),
         }),
       };
@@ -97,11 +107,62 @@ describe("Auth Module — Context & Authorization", () => {
     expect(user).toBeNull();
   });
 
+  it("getUser throws INFRASTRUCTURE_FAILURE when Supabase auth encounters a 500 error", async () => {
+    const mockClient = createMockSupabase({
+      authError: {
+        name: "AuthRetryableFetchError",
+        message: "Network request failed: 500 Internal Server Error",
+        status: 500,
+      },
+    });
+
+    const promise = getUser(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "INFRASTRUCTURE_FAILURE",
+      name: "AuthError",
+    });
+  });
+
+  it("getUser throws INFRASTRUCTURE_FAILURE when Supabase client throws an exception", async () => {
+    const mockClient = {
+      auth: {
+        getUser: vi.fn().mockRejectedValue(new Error("Connection refused")),
+      },
+    } as unknown as SupabaseClient;
+
+    const promise = getUser(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "INFRASTRUCTURE_FAILURE",
+      name: "AuthError",
+    });
+  });
+
   it("requireUser throws UNAUTHENTICATED error when unauthenticated", async () => {
     const mockClient = createMockSupabase({ user: null });
-    await expect(requireUser(mockClient)).rejects.toThrowError(
-      expect.objectContaining({ code: "UNAUTHENTICATED" }),
-    );
+    const promise = requireUser(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "UNAUTHENTICATED",
+      name: "AuthError",
+    });
+  });
+
+  it("requireUser propagates INFRASTRUCTURE_FAILURE when auth service fails", async () => {
+    const mockClient = createMockSupabase({
+      authError: {
+        status: 503,
+        message: "Service Unavailable",
+      },
+    });
+
+    const promise = requireUser(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "INFRASTRUCTURE_FAILURE",
+      name: "AuthError",
+    });
   });
 
   it("requireProviderContext FAILS CLOSED with NO_MEMBERSHIP when user has no membership", async () => {
@@ -110,9 +171,12 @@ describe("Auth Module — Context & Authorization", () => {
       membership: null,
     });
 
-    await expect(requireProviderContext(mockClient)).rejects.toThrowError(
-      expect.objectContaining({ code: "NO_MEMBERSHIP" }),
-    );
+    const promise = requireProviderContext(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "NO_MEMBERSHIP",
+      name: "AuthError",
+    });
   });
 
   it("requireProviderContext FAILS CLOSED with AMBIGUOUS_PROVIDER_CONTEXT when user has multiple memberships", async () => {
@@ -136,9 +200,29 @@ describe("Auth Module — Context & Authorization", () => {
       ],
     });
 
-    await expect(requireProviderContext(mockClient)).rejects.toThrowError(
-      expect.objectContaining({ code: "AMBIGUOUS_PROVIDER_CONTEXT" }),
-    );
+    const promise = requireProviderContext(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "AMBIGUOUS_PROVIDER_CONTEXT",
+      name: "AuthError",
+    });
+  });
+
+  it("requireProviderContext throws INFRASTRUCTURE_FAILURE when database query fails", async () => {
+    const mockClient = createMockSupabase({
+      user: { id: "user-123", email: "user@example.com" },
+      queryError: {
+        message: "Database connection failed",
+        code: "08006",
+      },
+    });
+
+    const promise = requireProviderContext(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "INFRASTRUCTURE_FAILURE",
+      name: "AuthError",
+    });
   });
 
   it("getProviderContext returns null when user has no membership", async () => {
@@ -149,6 +233,23 @@ describe("Auth Module — Context & Authorization", () => {
 
     const context = await getProviderContext(mockClient);
     expect(context).toBeNull();
+  });
+
+  it("getProviderContext throws INFRASTRUCTURE_FAILURE when membership query fails", async () => {
+    const mockClient = createMockSupabase({
+      user: { id: "user-123", email: "user@example.com" },
+      queryError: {
+        message: "Postgres timeout",
+        code: "57014",
+      },
+    });
+
+    const promise = getProviderContext(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "INFRASTRUCTURE_FAILURE",
+      name: "AuthError",
+    });
   });
 
   it("requireProviderContext resolves valid ProviderContext for OWNER", async () => {
@@ -263,11 +364,27 @@ describe("Auth Module — Context & Authorization", () => {
       },
     });
 
-    await expect(
-      requireProviderRole(["OWNER"], mockClient),
-    ).rejects.toThrowError(
-      expect.objectContaining({ code: "UNAUTHORIZED_ROLE" }),
-    );
+    const promise = requireProviderRole(["OWNER"], mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "UNAUTHORIZED_ROLE",
+      name: "AuthError",
+    });
+  });
+
+  it("removed staff member resolves NO_MEMBERSHIP upon subsequent requests", async () => {
+    // After staff offboarding, the provider_memberships row is deleted
+    const mockClient = createMockSupabase({
+      user: { id: "user-offboarded-staff", email: "ex-staff@shop.com" },
+      membership: null,
+    });
+
+    const promise = requireProviderContext(mockClient);
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "NO_MEMBERSHIP",
+      name: "AuthError",
+    });
   });
 });
 
@@ -276,6 +393,58 @@ describe("Auth Module — Persistence Membership Queries", () => {
     const mockClient = createMockSupabase({ membership: null });
     const result = await findMembershipByUserId(mockClient, "user-empty");
     expect(result).toBeNull();
+  });
+
+  it("findMembershipByUserId throws INFRASTRUCTURE_FAILURE on database query error", async () => {
+    const mockClient = createMockSupabase({
+      queryError: { message: "query timeout", code: "57014" },
+    });
+    const promise = findMembershipByUserId(mockClient, "user-123");
+    await expect(promise).rejects.toBeInstanceOf(AuthError);
+    await expect(promise).rejects.toMatchObject({
+      code: "INFRASTRUCTURE_FAILURE",
+      name: "AuthError",
+    });
+  });
+});
+
+describe("Auth Module — Error Classification Helpers", () => {
+  it("correctly classifies unauthenticated session errors vs infrastructure failures", () => {
+    expect(
+      isUnauthenticatedAuthError({
+        name: "AuthSessionMissingError",
+        message: "Auth session missing!",
+      }),
+    ).toBe(true);
+
+    expect(
+      isUnauthenticatedAuthError({
+        status: 400,
+        message: "Invalid JWT token",
+      }),
+    ).toBe(true);
+
+    expect(
+      isUnauthenticatedAuthError({
+        status: 401,
+        message: "JWT expired",
+      }),
+    ).toBe(true);
+
+    // 500 error is an infrastructure failure, not normal unauthenticated state
+    expect(
+      isUnauthenticatedAuthError({
+        status: 500,
+        message: "Internal Server Error",
+      }),
+    ).toBe(false);
+
+    // Network timeout is an infrastructure failure
+    expect(
+      isUnauthenticatedAuthError({
+        message: "fetch failed",
+      }),
+    ).toBe(false);
   });
 });
 
