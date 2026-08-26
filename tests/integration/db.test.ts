@@ -3568,10 +3568,7 @@ describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
       await createProviderAs(signInA.client);
       await createProviderAs(signInB.client);
 
-      const invitation = await createInvitationAs(
-        signInA.client,
-        staff.email!,
-      );
+      const invitation = await createInvitationAs(signInA.client, staff.email!);
       const staffSignIn = await signInTestUser(staff.email!, password);
       const accepted = assertSupabaseSuccess(
         await acceptInvitationAs(staffSignIn.client, invitation.tokenHash),

@@ -48,9 +48,7 @@ const { removeStaffMemberRecord: realRemoveStaffMemberRecord } =
   await vi.importActual<typeof import("./persistence")>("./persistence");
 
 const mockRequireProviderRole = vi.mocked(requireProviderRole);
-const mockRemoveStaffMemberRecord = vi.mocked(
-  mockedRemoveStaffMemberRecord,
-);
+const mockRemoveStaffMemberRecord = vi.mocked(mockedRemoveStaffMemberRecord);
 
 function ownerContext() {
   return {
@@ -518,9 +516,9 @@ describe("Providers Module — removeStaffMember feature interface", () => {
     mockRemoveStaffMemberRecord.mockResolvedValue(true);
 
     const client = {} as SupabaseClient;
-    await expect(
-      removeStaffMember({ membershipId }, client),
-    ).resolves.toEqual({ removed: true });
+    await expect(removeStaffMember({ membershipId }, client)).resolves.toEqual({
+      removed: true,
+    });
 
     expect(mockRemoveStaffMemberRecord).toHaveBeenCalledWith(
       client,
