@@ -44,6 +44,3 @@ next-env.d.ts
 # Supabase CLI local artifacts
 supabase/.temp/
 supabase/.branches/
-
-# local agent/session tool artifacts
-.headroom/
