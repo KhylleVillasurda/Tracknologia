@@ -30,6 +30,25 @@ Tracknologia uses a single-context domain docs layout rooted at `CONTEXT.md` and
 
 ---
 
+## Toolchain & commands
+
+- Package manager is **pnpm** (`packageManager: pnpm@11.22.0`); Node must be `>=24 <25`. Do not use npm/yarn for installs.
+- Quality gates, in CI order: `pnpm format:check` → `pnpm lint` → `pnpm typecheck` → `pnpm test:run` → `pnpm build`.
+  - Prettier formatting is enforced by CI. Run `pnpm format` before committing.
+  - `pnpm typecheck` runs `next typegen && tsc --noEmit` — it regenerates route types first, so run it after adding/changing routes.
+- Tests use Vitest with `globals` and the node environment. `pnpm test` is watch mode; use `pnpm test:run` (covers `src/` and `tests/contracts/`). Run one file with e.g. `pnpm test:run tests/contracts/provider-security.contract.test.ts`.
+  - The Vitest config aliases `@` to `src/` and `server-only` to an empty module, so feature modules import cleanly in tests.
+  - Database integration tests (`pnpm test:db`, `tests/integration/db.test.ts`) hit real PostgreSQL via a local Supabase stack. Start Supabase, then run `pnpm db:reset` before `pnpm test:db`. **Any schema, RLS, policy, trigger, constraint, or RPC change requires this suite** — unit tests alone are not enough.
+- Local env lives in `.env.local` (copy `.env.example`). Compose reads it via `env_file`. `NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=false` skips email confirmation locally; `RESEND_API_KEY` is optional in dev (emails log to console). CI builds with placeholder Supabase values.
+- Playwright E2E is aspirational: no `playwright.config.*` exists yet, so do not attempt `playwright test` locally.
+
+## Branches & commits
+
+- Promotion path enforced by `.github/workflows/branch-policy.yml`: only `staging` merges into `master`; only `feature/NN/*`, `fix/*`, `hotfix/*`, `chore/*`, or `dependabot/*` merge into `staging`; any branch may PR into a protected `feature/**` integration branch. Active development lands on `staging`.
+- Commit messages follow `tag[author_name]: description` (e.g., `feat[jnnzz]: add pilot analytics`) — see the `git-commit-rules` skill.
+
+---
+
 ## 1. Read Before Writing
 
 Before changing code:
@@ -666,7 +685,7 @@ Provider A must not be able to read or mutate Provider B's data even if an ident
 
 ## 16. `proxy.ts` Is Not the Authorization System
 
-`proxy.ts` may handle:
+`proxy.ts` lives at the repository root (this Next.js version uses `proxy.ts`, not `middleware.ts`). It may handle:
 
 - session refresh;
 - redirects;
