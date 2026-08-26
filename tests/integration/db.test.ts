@@ -3461,7 +3461,7 @@ describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
     try {
       const invitation = await createInvitationAs(
         ownerSignIn.client,
-        uniqueEmail("offboard-staff"),
+        staff.email!,
       );
       const staffSignIn = await signInTestUser(staff.email!, password);
       const accepted = assertSupabaseSuccess(
@@ -3489,6 +3489,15 @@ describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
       expect(staffAttempt.error).toMatchObject({
         message: /Only Provider Owners/,
       });
+
+      // Active Staff can mutate Provider Repairs.
+      assertSupabaseSuccess(
+        await staffSignIn.client.rpc(
+          "create_provider_repair",
+          directRepairInput({ p_customer_name: "Offboard Staff Customer" }),
+        ),
+        "active Staff creates a direct Repair",
+      );
 
       const removal = assertSupabaseSuccess(
         await ownerSignIn.client.rpc("remove_staff_member", {
@@ -3519,6 +3528,15 @@ describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
         .select("id")
         .eq("id", provider.providerId);
       expect(deniedRead.data).toEqual([]);
+
+      // The same Repair mutation active Staff could perform is now denied.
+      const deniedRepairMutation = await staffSignIn.client.rpc(
+        "create_provider_repair",
+        directRepairInput({ p_customer_name: "Removed Staff Customer" }),
+      );
+      expect(deniedRepairMutation.error).toMatchObject({
+        message: /PROVIDER_CONTEXT_REQUIRED/,
+      });
 
       // Removing an OWNER through this operation is refused.
       const ownerSelfAttempt = await ownerSignIn.client.rpc(
@@ -3552,7 +3570,7 @@ describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
 
       const invitation = await createInvitationAs(
         signInA.client,
-        uniqueEmail("cross-tenant-staff"),
+        staff.email!,
       );
       const staffSignIn = await signInTestUser(staff.email!, password);
       const accepted = assertSupabaseSuccess(

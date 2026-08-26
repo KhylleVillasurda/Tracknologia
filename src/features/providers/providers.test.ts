@@ -1,7 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // Mock server-only in test environment
 vi.mock("server-only", () => ({}));
+
+vi.mock("@/features/auth", () => ({
+  requireProviderRole: vi.fn(),
+  requireUser: vi.fn(),
+}));
+
+vi.mock("@/lib/email/client", () => ({
+  sendStaffInviteEmail: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: vi.fn(),
+}));
+
+vi.mock("./persistence", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./persistence")>()),
+  removeStaffMemberRecord: vi.fn(),
+}));
 
 import {
   createIndependentProviderSchema,
@@ -18,9 +36,33 @@ import {
   insertStaffInvitationRecord,
   listTeamMembers,
   getPublicProviderProfile,
-  removeStaffMemberRecord,
+  removeStaffMemberRecord as mockedRemoveStaffMemberRecord,
 } from "./persistence";
+import { removeStaffMember } from "./commands";
+import { requireProviderRole } from "@/features/auth";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+// The unmocked original is used directly by persistence-behavior tests below,
+// while the mocked export above backs the feature-interface tests.
+const { removeStaffMemberRecord: realRemoveStaffMemberRecord } =
+  await vi.importActual<typeof import("./persistence")>("./persistence");
+
+const mockRequireProviderRole = vi.mocked(requireProviderRole);
+const mockRemoveStaffMemberRecord = vi.mocked(
+  mockedRemoveStaffMemberRecord,
+);
+
+function ownerContext() {
+  return {
+    userId: "user-owner-1",
+    providerId: "prov-shop-1",
+    role: "OWNER",
+    providerType: "SHOP",
+    providerName: "Apex Electronics",
+  } as unknown as Awaited<ReturnType<typeof requireProviderRole>>;
+}
+
+const membershipId = "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b";
 
 function createMockSupabase(options: {
   rpcData?: unknown;
@@ -442,7 +484,7 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     const mockClient = createMockSupabase({});
 
     await expect(
-      removeStaffMemberRecord(
+      realRemoveStaffMemberRecord(
         mockClient,
         "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
       ),
@@ -457,10 +499,61 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     const mockClient = createMockSupabase({ rpcData: false });
 
     await expect(
-      removeStaffMemberRecord(
+      realRemoveStaffMemberRecord(
         mockClient,
         "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b",
       ),
     ).resolves.toBe(false);
+  });
+});
+
+describe("Providers Module — removeStaffMember feature interface", () => {
+  beforeEach(() => {
+    mockRequireProviderRole.mockReset();
+    mockRemoveStaffMemberRecord.mockReset();
+  });
+
+  it("authorized OWNER reaches persistence and reports removal", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockRemoveStaffMemberRecord.mockResolvedValue(true);
+
+    const client = {} as SupabaseClient;
+    await expect(
+      removeStaffMember({ membershipId }, client),
+    ).resolves.toEqual({ removed: true });
+
+    expect(mockRemoveStaffMemberRecord).toHaveBeenCalledWith(
+      client,
+      membershipId,
+    );
+  });
+
+  it("rejects non-OWNER callers before persistence", async () => {
+    mockRequireProviderRole.mockRejectedValue(
+      new Error("UNAUTHORIZED_ROLE: OWNER role is required"),
+    );
+
+    await expect(removeStaffMember({ membershipId })).rejects.toThrow(
+      /UNAUTHORIZED_ROLE/,
+    );
+    expect(mockRemoveStaffMemberRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid membership identifier before persistence", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+
+    await expect(
+      removeStaffMember({ membershipId: "not-a-uuid" }),
+    ).rejects.toThrow(/Invalid team member identifier/);
+    expect(mockRemoveStaffMemberRecord).not.toHaveBeenCalled();
+  });
+
+  it("preserves the neutral false result for ineligible targets", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockRemoveStaffMemberRecord.mockResolvedValue(false);
+
+    await expect(removeStaffMember({ membershipId })).resolves.toEqual({
+      removed: false,
+    });
   });
 });
