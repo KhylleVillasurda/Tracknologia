@@ -3492,6 +3492,12 @@ describe("OWNER-controlled Staff offboarding (Plan 03)", () => {
 
       // Active Staff can mutate Provider Repairs.
       assertSupabaseSuccess(
+        await ownerSignIn.client.rpc("set_provider_service_modes", {
+          p_service_modes: [{ mode: "DROP_OFF" }],
+        }),
+        "configure offboarding Service Modes",
+      );
+      assertSupabaseSuccess(
         await staffSignIn.client.rpc(
           "create_provider_repair",
           directRepairInput({ p_customer_name: "Offboard Staff Customer" }),
