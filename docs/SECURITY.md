@@ -235,6 +235,18 @@ Production exposure still needs:
 
 - optional CAPTCHA/bot protection only when actual abuse warrants it.
 
+## Staff offboarding
+
+Only the authenticated `OWNER` can remove a `STAFF` membership, through the
+`Providers.removeStaffMember` command and the narrow
+`remove_staff_member(UUID)` transaction. The database function locks the target
+membership row, removes exactly one same-Provider `STAFF` row, and refuses
+`OWNER` targets. Not-found, cross-Provider, and non-STAFF targets collapse into
+a neutral `false`, so membership existence in another Provider is never
+revealed. Direct client writes to `provider_memberships` remain denied; RLS
+denies removed Staff on their next request even if application UI is bypassed,
+and the removed user's person profile is retained.
+
 ## Request decision integrity
 
 Authenticated clients can read only Provider-owned Request/Repair/history rows.

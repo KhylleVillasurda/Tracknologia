@@ -121,6 +121,7 @@ setServiceModes(modes: ProviderServiceMode[]): Promise<ProviderServiceMode[]>
 createStaffInvitation(input: { email: string }): Promise<CreateStaffInvitationResult>
 acceptStaffInvitation(input: AcceptStaffInvitationInput): Promise<{ providerId: string; membershipId: string; role: "STAFF" }>
 revokeStaffInvitation(invitationId: string): Promise<void>
+removeStaffMember(input: { membershipId: string }): Promise<RemoveStaffMemberResult>
 
 // Queries
 getProvider(providerId: string): Promise<Provider | null>
@@ -162,7 +163,21 @@ Validate token_hash, not expired, not revoked, not accepted, verify SHOP provide
 INSERT provider_user_profiles + INSERT provider_memberships (role: STAFF) + UPDATE provider_invitations
 ```
 
-### 3. Provider and person profile settings
+### 3. Staff Offboarding
+
+```text
+Shop Owner
+       ↓
+removeStaffMember({ membershipId })
+       ↓ (narrow database transaction)
+Lock target membership, verify same Provider + role STAFF, delete exactly that row
+       ↓
+Removed Staff loses ProviderContext and RLS-backed access on their next request
+```
+
+Not-found, cross-Provider, and OWNER targets collapse into `removed: false`.
+
+### 4. Provider and person profile settings
 
 ```text
 Authenticated Provider User
@@ -197,6 +212,9 @@ browser-supplied `providerId`, role, or user ID for these mutations.
 15. Removing a configured Service Mode does not invalidate historical Repairs;
     replacement serializes with intentional Repair mode changes through the
     Provider-row lock.
+16. Only an `OWNER` can remove a same-Provider `STAFF` membership; OWNER
+    targets and cross-Provider targets are never removable through Staff
+    offboarding.
 
 ## Testing expectations
 
@@ -207,6 +225,9 @@ Test:
 - valid Staff invitation creates exactly one `STAFF` membership atomically;
 - expired, revoked, or consumed invitations are rejected;
 - Staff cannot join a Provider without a valid invitation;
+- OWNER removes a same-Provider STAFF and the removed member loses access;
+- STAFF cannot remove members; OWNER rows cannot be removed through offboarding;
+- cross-Provider removal attempts are neutral and non-destructive;
 - Staff invitations cannot be created or accepted for `INDEPENDENT` providers;
 - public lookup by slug returns only public-safe fields;
 - Provider creation rolls back when Service Mode persistence fails;
