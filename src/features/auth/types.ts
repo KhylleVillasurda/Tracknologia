@@ -47,27 +47,62 @@ export class AuthError extends Error {
   }
 }
 
+const KNOWN_UNAUTHENTICATED_ERROR_CODES = new Set([
+  "session_not_found",
+  "invalid_jwt",
+  "bad_jwt",
+  "user_not_found",
+  "refresh_token_not_found",
+  "refresh_token_already_used",
+  "invalid_refresh_token",
+  "token_expired",
+  "session_expired",
+  "bad_oauth_callback",
+]);
+
 /**
  * Distinguishes expected unauthenticated session errors (e.g. missing or expired token)
- * from infrastructure/network failures (e.g. 500, network down, timeout).
+ * from infrastructure/network failures (e.g. 500, network down, timeout, database connection failure).
  */
 export function isUnauthenticatedAuthError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  const err = error as { name?: string; message?: string; status?: number };
+  const err = error as {
+    name?: string;
+    code?: string;
+    status?: number;
+    message?: string;
+  };
 
-  if (err.name === "AuthSessionMissingError") return true;
-  if (err.status === 400 || err.status === 401) return true;
+  // Explicit session missing error thrown by Supabase SSR / GoTrue when no session cookie exists
+  if (err.name === "AuthSessionMissingError") {
+    return true;
+  }
 
+  // Exact known Supabase auth error codes
+  if (
+    err.code &&
+    KNOWN_UNAUTHENTICATED_ERROR_CODES.has(err.code.toLowerCase())
+  ) {
+    return true;
+  }
+
+  // Status 401 specifically from Supabase Auth client errors
+  if (
+    err.status === 401 &&
+    (err.name === "AuthApiError" ||
+      err.name === "AuthInvalidTokenResponseError")
+  ) {
+    return true;
+  }
+
+  // Strict string checks for GoTrue known session-missing messages when code might be absent
   const msg = (err.message || "").toLowerCase();
   if (
-    msg.includes("auth session missing") ||
-    msg.includes("session not found") ||
-    msg.includes("session_not_found") ||
-    msg.includes("jwt") ||
-    msg.includes("invalid refresh token") ||
-    msg.includes("refresh token not found") ||
-    msg.includes("not logged in") ||
-    msg.includes("unauthorized")
+    msg === "auth session missing!" ||
+    msg === "auth session missing" ||
+    msg === "session not found" ||
+    msg === "invalid refresh token" ||
+    msg === "refresh token not found"
   ) {
     return true;
   }

@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr";
+﻿import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isUnauthenticatedAuthError } from "@/features/auth/types";
 
@@ -6,6 +6,21 @@ export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
+
+  const pathname = request.nextUrl.pathname;
+
+  const isDashboardRoute = pathname.startsWith("/dashboard");
+  const isOnboardingRoute = pathname.startsWith("/onboarding");
+  const isAuthRoute =
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/reset-password");
+
+  // Bypass Auth check entirely for accountless public routes
+  if (!isDashboardRoute && !isOnboardingRoute && !isAuthRoute) {
+    return supabaseResponse;
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
@@ -41,19 +56,12 @@ export async function proxy(request: NextRequest) {
     error,
   } = await supabase.auth.getUser();
 
-  const isAuthRoute =
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/register") ||
-    request.nextUrl.pathname.startsWith("/forgot-password");
-
-  const isDashboardRoute = request.nextUrl.pathname.startsWith("/dashboard");
-
   // If there is an infrastructure failure from Supabase Auth, do not treat as logout/redirect
   const isDefinitelyUnauthenticated =
     !user && (!error || isUnauthenticatedAuthError(error));
 
   // Coarse route redirects (defense in depth is still in feature interfaces + RLS)
-  if (isDefinitelyUnauthenticated && isDashboardRoute) {
+  if (isDefinitelyUnauthenticated && (isDashboardRoute || isOnboardingRoute)) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("redirectTo", request.nextUrl.pathname);

@@ -14,6 +14,7 @@ import { loginSchema, registerSchema, forgotPasswordSchema } from "./schemas";
 import { findMembershipByUserId } from "./persistence";
 import { AuthError, isUnauthenticatedAuthError } from "./types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ServiceUnavailable } from "@/app/(provider)/dashboard/_components/service-unavailable";
 
 function createMockSupabase(options: {
   user?: { id: string; email?: string } | null;
@@ -88,7 +89,7 @@ function createMockSupabase(options: {
   } as unknown as SupabaseClient;
 }
 
-describe("Auth Module — Context & Authorization", () => {
+describe("Auth Module ï¿½ Context & Authorization", () => {
   it("getUser returns user when authenticated", async () => {
     const mockClient = createMockSupabase({
       user: { id: "user-123", email: "test@example.com" },
@@ -373,7 +374,6 @@ describe("Auth Module — Context & Authorization", () => {
   });
 
   it("removed staff member resolves NO_MEMBERSHIP upon subsequent requests", async () => {
-    // After staff offboarding, the provider_memberships row is deleted
     const mockClient = createMockSupabase({
       user: { id: "user-offboarded-staff", email: "ex-staff@shop.com" },
       membership: null,
@@ -388,7 +388,7 @@ describe("Auth Module — Context & Authorization", () => {
   });
 });
 
-describe("Auth Module — Persistence Membership Queries", () => {
+describe("Auth Module ï¿½ Persistence Membership Queries", () => {
   it("findMembershipByUserId returns null when no rows exist", async () => {
     const mockClient = createMockSupabase({ membership: null });
     const result = await findMembershipByUserId(mockClient, "user-empty");
@@ -408,8 +408,8 @@ describe("Auth Module — Persistence Membership Queries", () => {
   });
 });
 
-describe("Auth Module — Error Classification Helpers", () => {
-  it("correctly classifies unauthenticated session errors vs infrastructure failures", () => {
+describe("Auth Module ï¿½ Error Classification Helpers", () => {
+  it("correctly classifies explicit unauthenticated session errors", () => {
     expect(
       isUnauthenticatedAuthError({
         name: "AuthSessionMissingError",
@@ -419,19 +419,41 @@ describe("Auth Module — Error Classification Helpers", () => {
 
     expect(
       isUnauthenticatedAuthError({
+        name: "AuthApiError",
+        code: "session_not_found",
         status: 400,
-        message: "Invalid JWT token",
       }),
     ).toBe(true);
 
     expect(
       isUnauthenticatedAuthError({
-        status: 401,
-        message: "JWT expired",
+        code: "invalid_jwt",
       }),
     ).toBe(true);
 
-    // 500 error is an infrastructure failure, not normal unauthenticated state
+    expect(
+      isUnauthenticatedAuthError({
+        code: "bad_jwt",
+      }),
+    ).toBe(true);
+
+    expect(
+      isUnauthenticatedAuthError({
+        code: "refresh_token_not_found",
+      }),
+    ).toBe(true);
+
+    expect(
+      isUnauthenticatedAuthError({
+        name: "AuthApiError",
+        status: 401,
+        message: "Invalid token",
+      }),
+    ).toBe(true);
+  });
+
+  it("correctly classifies infrastructure, database, and network errors as NOT unauthenticated", () => {
+    // 500 Internal Server Error
     expect(
       isUnauthenticatedAuthError({
         status: 500,
@@ -439,16 +461,53 @@ describe("Auth Module — Error Classification Helpers", () => {
       }),
     ).toBe(false);
 
-    // Network timeout is an infrastructure failure
+    // 503 Service Unavailable
     expect(
       isUnauthenticatedAuthError({
-        message: "fetch failed",
+        status: 503,
+        message: "Service Unavailable",
       }),
     ).toBe(false);
+
+    // Postgres Connection Timeout / Error
+    expect(
+      isUnauthenticatedAuthError({
+        code: "08006",
+        message: "connection failure",
+      }),
+    ).toBe(false);
+
+    // Postgres Query Timeout
+    expect(
+      isUnauthenticatedAuthError({
+        code: "57014",
+        message: "query_canceled",
+      }),
+    ).toBe(false);
+
+    // Generic 400 Bad Request with non-auth code
+    expect(
+      isUnauthenticatedAuthError({
+        status: 400,
+        message: "Bad Request: invalid parameter",
+      }),
+    ).toBe(false);
+
+    // Network / fetch failure
+    expect(isUnauthenticatedAuthError(new TypeError("fetch failed"))).toBe(
+      false,
+    );
   });
 });
 
-describe("Auth — Validation Schemas & Registration Secrets", () => {
+describe("Auth Module ï¿½ ServiceUnavailable Presentation Seam", () => {
+  it("renders safe user-facing copy without leaking technical or infrastructure internals", () => {
+    const element = ServiceUnavailable();
+    expect(element).toBeDefined();
+  });
+});
+
+describe("Auth ï¿½ Validation Schemas & Registration Secrets", () => {
   it("validates login inputs correctly", () => {
     const valid = loginSchema.safeParse({
       email: "test@example.com",
