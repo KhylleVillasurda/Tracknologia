@@ -94,9 +94,9 @@ removed Staff resolves NO_MEMBERSHIP/denied after offboarding
 Performance regression & Request-Local Memoization Evidence:
 
 - **Mechanism:** Request-scoped resolution via React `cache()` in `src/features/auth/context.ts` (`getRequestScopedUser` and `getRequestScopedProviderContext`).
-- **Same-request deduplication:** Within a single server request (e.g. DashboardLayout resolving context + DashboardPage resolving context), `auth.getUser()` and `findMembershipByUserId` execute once per request cycle.
-- **Next-request freshness:** Authorization is not cached across requests (no Redis, no module-level global cache). When a staff member is offboarded in PostgreSQL, the subsequent request immediately resolves `NO_MEMBERSHIP`.
-- **Automated verification:** Tested and proven in `tests/contracts/auth-request-memoization.contract.test.ts`.
+- **Same-request deduplication:** Within a single server request (e.g. Dashboard Layout resolving context + Dashboard Page resolving context + Child components resolving user/context), `auth.getUser()` and `findMembershipByUserId` execute exactly once per request cycle.
+- **Next-request freshness:** Authorization is not cached across requests (no Redis, no module-level global cache). When a staff member is offboarded in PostgreSQL, the subsequent server request immediately resolves `NO_MEMBERSHIP`.
+- **Automated verification:** Tested and proven in `tests/contracts/auth-request-memoization.contract.test.ts` by simulating the Server Component request lifecycle and asserting exact call counts on the no-client production path.
 
 ## Acceptance Criteria
 
