@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   lookupRepairByTrackingCode: vi.fn(),
   checkClientRateLimit: vi.fn(),
   recordSuccessfulTrackingView: vi.fn(),
-  after: vi.fn((_callback: () => Promise<void> | void) => {}),
+  after: vi.fn<(callback: () => Promise<void> | void) => void>(),
 }));
 
 vi.mock("next/server", () => ({
