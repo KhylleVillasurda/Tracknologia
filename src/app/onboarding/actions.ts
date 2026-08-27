@@ -2,7 +2,6 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-
 import {
   acceptStaffInvitation,
   acceptStaffInvitationSchema,
@@ -188,22 +187,27 @@ export async function acceptStaffInviteAction(
   formData: FormData,
 ): Promise<OnboardingActionState> {
   const supabase = await createClient();
-  const token = formData.get("token")?.toString() ?? "";
-  const displayName = formData.get("displayName")?.toString() ?? "";
+  const token = formData.get("token")?.toString()?.trim() ?? "";
+  const fullName =
+    formData.get("fullName")?.toString()?.trim() ||
+    formData.get("displayName")?.toString()?.trim() ||
+    "";
   const contactPhone =
-    formData.get("contactPhone")?.toString() || undefined;
+    formData.get("contactPhone")?.toString()?.trim() || undefined;
 
   const parsed = acceptStaffInvitationSchema.safeParse({
     token,
-    displayName,
+    displayName: fullName,
     contactPhone,
   });
 
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
     parsed.error.issues.forEach((issue) => {
-      if (issue.path[0]) {
-        fieldErrors[issue.path[0].toString()] = issue.message;
+      const field = issue.path[0]?.toString();
+      if (field) {
+        fieldErrors[field === "displayName" ? "fullName" : field] =
+          issue.message;
       }
     });
     return {
@@ -221,13 +225,16 @@ export async function acceptStaffInviteAction(
       },
       supabase,
     );
+
+    const cookieStore = await cookies();
+    cookieStore.delete("tracknologia_staff_invite");
+    cookieStore.delete("pending_invite_token");
   } catch (err: unknown) {
     return {
       error:
-        err instanceof Error ? err.message : "Failed to accept invitation",
+        err instanceof Error ? err.message : "Failed to accept staff invite",
     };
   }
 
-  (await cookies()).delete("pending_invite_token");
   redirect("/dashboard");
 }
