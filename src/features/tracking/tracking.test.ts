@@ -6,6 +6,7 @@ vi.mock("server-only", () => ({}));
 import { lookupRepairByTrackingCode } from "./index";
 
 const TRACKING_CODE = "TRK-0123456789ABCDEF01234567";
+const REQUEST_CODE = "REQ-0123456789ABCDEF";
 
 function trackingClient(row: Record<string, unknown> | null): {
   client: SupabaseClient;
@@ -70,11 +71,48 @@ describe("Tracking lookup", () => {
           createdAt: "2026-08-24T02:30:00.000Z",
         },
       ],
+      trackingType: undefined,
+      trackingCode: undefined,
     });
     expect(result).not.toHaveProperty("customerPhone");
     expect(result).not.toHaveProperty("internalNotes");
     expect(result).not.toHaveProperty("repairId");
-    expect(result).not.toHaveProperty("trackingCode");
+  });
+
+  it("normalizes a Request Reference Code and returns request status view", async () => {
+    const { client, rpc } = trackingClient(
+      publicProjectionRow({
+        current_status: "SUBMITTED",
+        customer_updates: [],
+        tracking_type: "REQUEST",
+        reference_code: REQUEST_CODE,
+      }),
+    );
+
+    const result = await lookupRepairByTrackingCode(
+      "  req-0123456789abcdef  ",
+      client,
+    );
+
+    expect(rpc).toHaveBeenCalledWith("lookup_public_repair", {
+      p_tracking_code: REQUEST_CODE,
+    });
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      providerDisplayName: "Jacinth Device Care",
+      deviceSummary: "Lenovo IdeaPad 3 · Laptop",
+      currentStatus: "SUBMITTED",
+      statusLabel: "Request Submitted",
+      statusDescription:
+        "Provider has received your repair request and is reviewing it. Active repair tracking begins once accepted.",
+      serviceMode: "DROP_OFF",
+      serviceModeLabel: "Drop-off",
+      handoverMessage: null,
+      lastUpdatedAt: "2026-08-24T03:00:00.000Z",
+      customerUpdates: [],
+      trackingType: "REQUEST",
+      trackingCode: REQUEST_CODE,
+    });
   });
 
   it("returns the same not-found result for malformed and unknown codes", async () => {
@@ -124,6 +162,16 @@ describe("Tracking lookup", () => {
       "Repair work is finished and your device is ready for handover.",
     ],
     ["COMPLETED", "Completed", "Repair and device handover are complete."],
+    [
+      "SUBMITTED",
+      "Request Submitted",
+      "Provider has received your repair request and is reviewing it. Active repair tracking begins once accepted.",
+    ],
+    [
+      "DECLINED",
+      "Request Declined",
+      "Provider was unable to accept this repair request. Please contact the provider for alternative options.",
+    ],
   ])(
     "presents %s with customer-friendly meaning",
     async (currentStatus, statusLabel, statusDescription) => {

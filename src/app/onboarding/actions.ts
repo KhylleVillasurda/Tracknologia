@@ -1,22 +1,23 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
-import {
-  createIndependentProviderSchema,
-  createShopProviderSchema,
-  acceptStaffInvitationSchema,
-  createProvider,
-  acceptStaffInvitation,
-} from "@/features/providers";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+
+import {
+  acceptStaffInvitation,
+  acceptStaffInvitationSchema,
+  createIndependentProviderSchema,
+  createProvider,
+  createShopProviderSchema,
+  isProviderNameConflictError,
+} from "@/features/providers";
+import { createClient } from "@/lib/supabase/server";
 
 export interface OnboardingActionState {
   error?: string;
   success?: string;
   fieldErrors?: Record<string, string>;
 }
-
-import { cookies } from "next/headers";
 
 function readServiceModes(formData: FormData) {
   return formData.getAll("serviceModes").map((value) => {
@@ -87,11 +88,21 @@ export async function onboardIndependentAction(
       supabase,
     );
   } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Failed to create independent provider";
+    const duplicate = isProviderNameConflictError(err);
     return {
-      error:
-        err instanceof Error
-          ? err.message
-          : "Failed to create independent provider",
+      error: duplicate
+        ? "This business name is already taken. Please choose a unique name."
+        : message,
+      fieldErrors: duplicate
+        ? {
+            displayName:
+              "This name is already taken. Please choose a unique name.",
+          }
+        : undefined,
     };
   }
 
@@ -153,9 +164,19 @@ export async function onboardShopAction(
       supabase,
     );
   } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Failed to create shop provider";
+    const duplicate = isProviderNameConflictError(err);
     return {
-      error:
-        err instanceof Error ? err.message : "Failed to create repair shop",
+      error: duplicate
+        ? "This business name is already taken. Please choose a unique name."
+        : message,
+      fieldErrors: duplicate
+        ? {
+            displayName:
+              "This name is already taken. Please choose a unique name.",
+          }
+        : undefined,
     };
   }
 
@@ -167,25 +188,22 @@ export async function acceptStaffInviteAction(
   formData: FormData,
 ): Promise<OnboardingActionState> {
   const supabase = await createClient();
-  const token = formData.get("token")?.toString()?.trim() ?? "";
-  const fullName = formData.get("fullName")?.toString()?.trim() ?? "";
-  const contactPhone = formData.get("contactPhone")?.toString()?.trim();
+  const token = formData.get("token")?.toString() ?? "";
+  const displayName = formData.get("displayName")?.toString() ?? "";
+  const contactPhone =
+    formData.get("contactPhone")?.toString() || undefined;
 
   const parsed = acceptStaffInvitationSchema.safeParse({
     token,
-    displayName: fullName,
-    contactPhone: contactPhone || undefined,
+    displayName,
+    contactPhone,
   });
 
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
     parsed.error.issues.forEach((issue) => {
-      const key =
-        issue.path[0] === "displayName"
-          ? "fullName"
-          : issue.path[0]?.toString();
-      if (key) {
-        fieldErrors[key] = issue.message;
+      if (issue.path[0]) {
+        fieldErrors[issue.path[0].toString()] = issue.message;
       }
     });
     return {
@@ -203,16 +221,13 @@ export async function acceptStaffInviteAction(
       },
       supabase,
     );
-    const cookieStore = await cookies();
-    cookieStore.delete("tracknologia_staff_invite");
   } catch (err: unknown) {
     return {
       error:
-        err instanceof Error
-          ? err.message
-          : "Invalid, expired, or already accepted invitation",
+        err instanceof Error ? err.message : "Failed to accept invitation",
     };
   }
 
+  (await cookies()).delete("pending_invite_token");
   redirect("/dashboard");
 }

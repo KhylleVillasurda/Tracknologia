@@ -1,8 +1,12 @@
 import "server-only";
+
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+
 import { requireProviderRole, requireUser } from "@/features/auth";
+import { sendStaffInviteEmail } from "@/lib/email/client";
+import { createClient } from "@/lib/supabase/server";
+
 import {
   acceptStaffInvitation as acceptStaffInvitationPersistence,
   createProviderWithOwner,
@@ -34,7 +38,20 @@ import type {
   UpdateProviderProfileInput,
   UpdateProviderUserProfileInput,
 } from "./types";
-import { sendStaffInviteEmail } from "@/lib/email/client";
+
+/**
+ * Predicate to determine if an error represents a provider name/slug collision.
+ */
+export function isProviderNameConflictError(err: unknown): boolean {
+  if (!err) return false;
+  const message = err instanceof Error ? err.message : String(err);
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("already exists") ||
+    normalized.includes("taken") ||
+    normalized.includes("providers_slug_key")
+  );
+}
 
 /**
  * Creates a new Provider with its initial OWNER membership and person profile atomically.

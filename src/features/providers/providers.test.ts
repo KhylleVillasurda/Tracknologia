@@ -404,6 +404,24 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     );
   });
 
+  it("createProviderWithOwner propagates duplicate name rejection error from database", async () => {
+    const mockClient = createMockSupabase({
+      rpcError: new Error(
+        "A provider with this name already exists. Please choose a different name.",
+      ),
+    });
+
+    await expect(
+      createProviderWithOwner(mockClient, {
+        displayName: "Duplicate Tech Shop",
+        providerType: "SHOP",
+        ownerDisplayName: "Maria Santos",
+      }),
+    ).rejects.toThrow(
+      /A provider with this name already exists. Please choose a different name./,
+    );
+  });
+
   it("acceptStaffInvitation calls accept_staff_invitation RPC with token digest", async () => {
     const mockClient = createMockSupabase({
       rpcData: [

@@ -1,14 +1,13 @@
 import { z } from "zod";
 
 import { serviceModeEnum } from "@/features/providers";
-import { repairStatusEnum } from "@/features/repairs";
 
 export const trackingCodeSchema = z
   .string()
   .max(128)
   .trim()
   .toUpperCase()
-  .regex(/^TRK-[A-F0-9]{24}$/);
+  .regex(/^(TRK-[A-F0-9]{24}|REQ-[A-F0-9]{16})$/);
 
 export const publicRepairProjectionSchema = z
   .object({
@@ -16,7 +15,7 @@ export const publicRepairProjectionSchema = z
     device_type: z.string().trim().min(1).max(80),
     brand: z.string().max(80).nullable(),
     model: z.string().max(80).nullable(),
-    current_status: repairStatusEnum,
+    current_status: z.string().min(1),
     service_mode: serviceModeEnum.nullable(),
     last_updated_at: z.string().min(1),
     customer_updates: z
@@ -29,6 +28,8 @@ export const publicRepairProjectionSchema = z
           .strict(),
       )
       .max(25),
+    tracking_type: z.enum(["REPAIR", "REQUEST"]).optional(),
+    reference_code: z.string().optional(),
   })
   .strict();
 
