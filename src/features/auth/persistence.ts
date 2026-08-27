@@ -28,6 +28,7 @@ export interface ProviderMembershipWithDetails extends ProviderMembership {
  * Finds the trusted Provider membership for a given user ID.
  * Returns null if 0 memberships exist.
  * Throws AMBIGUOUS_PROVIDER_CONTEXT if > 1 memberships exist (until multi-provider selection is supported).
+ * Throws INFRASTRUCTURE_FAILURE if Supabase query fails.
  */
 export async function findMembershipByUserId(
   supabase: SupabaseClient,
@@ -41,7 +42,19 @@ export async function findMembershipByUserId(
     .eq("user_id", userId);
 
   if (error) {
-    throw new Error(`Failed to fetch provider membership: ${error.message}`);
+    console.error(
+      "[AUTH_INFRASTRUCTURE_FAILURE] findMembershipByUserId query error",
+      {
+        code: error.code,
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      },
+    );
+    throw new AuthError(
+      "Failed to query provider membership due to infrastructure failure",
+      "INFRASTRUCTURE_FAILURE",
+      error,
+    );
   }
 
   if (!data || data.length === 0) {

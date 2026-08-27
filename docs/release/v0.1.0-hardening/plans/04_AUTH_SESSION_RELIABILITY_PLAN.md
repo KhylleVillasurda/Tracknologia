@@ -91,18 +91,21 @@ public accountless routes do not require ProviderContext
 removed Staff resolves NO_MEMBERSHIP/denied after offboarding
 ```
 
-Performance regression:
+Performance regression & Request-Local Memoization Evidence:
 
-Measure a representative dashboard request before/after and confirm repeated ProviderContext work is reduced without cross-request stale authorization.
+- **Mechanism:** Request-scoped resolution via React `cache()` in `src/features/auth/context.ts` (`getRequestScopedUser` and `getRequestScopedProviderContext`).
+- **Same-request deduplication:** Within a single server request (e.g. Dashboard Layout resolving context + Dashboard Page resolving context + Child components resolving user/context), `auth.getUser()` and `findMembershipByUserId` execute exactly once per request cycle.
+- **Next-request freshness:** Authorization is not cached across requests (no Redis, no module-level global cache). When a staff member is offboarded in PostgreSQL, the subsequent server request immediately resolves `NO_MEMBERSHIP`.
+- **Automated verification:** Tested and proven in `tests/contracts/auth-request-memoization.contract.test.ts` by simulating the Server Component request lifecycle and asserting exact call counts on the no-client production path.
 
 ## Acceptance Criteria
 
 ```text
-[ ] five required auth/context outcomes remain distinguishable
-[ ] infrastructure failure is never represented as logout
-[ ] ambiguous membership fails closed
-[ ] public accountless routes avoid unnecessary auth resolution
-[ ] request-local context reuse is used where practical and safe
-[ ] no new distributed cache
-[ ] tests cover each outcome
+[x] five required auth/context outcomes remain distinguishable
+[x] infrastructure failure is never represented as logout
+[x] ambiguous membership fails closed
+[x] public accountless routes avoid unnecessary auth resolution
+[x] request-local context reuse is used where practical and safe
+[x] no new distributed cache
+[x] tests cover each outcome
 ```

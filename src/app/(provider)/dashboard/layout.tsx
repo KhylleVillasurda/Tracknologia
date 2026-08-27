@@ -1,20 +1,66 @@
-import { getUser, getProviderContext } from "@/features/auth";
+﻿import {
+  getUser,
+  getProviderContext,
+  AuthError,
+  type AuthenticatedUser,
+  type ProviderContext,
+} from "@/features/auth";
 import { signOutAction } from "@/app/(auth)/actions";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
+import { ServiceUnavailable } from "./_components/service-unavailable";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getUser();
+  let user: AuthenticatedUser | null = null;
+  let context: ProviderContext | null = null;
+
+  try {
+    user = await getUser();
+    if (user) {
+      context = await getProviderContext();
+    }
+  } catch (err) {
+    if (err instanceof AuthError) {
+      if (err.code === "INFRASTRUCTURE_FAILURE") {
+        return <ServiceUnavailable />;
+      }
+
+      if (err.code === "AMBIGUOUS_PROVIDER_CONTEXT") {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4 bg-background text-foreground">
+            <div className="max-w-md w-full p-6 border border-border rounded-lg shadow-xs bg-card space-y-4 text-center">
+              <h2 className="text-xl font-bold text-foreground">
+                Multiple Provider Accounts Found
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Your account is associated with multiple provider profiles.
+                Multi-provider switching is currently restricted. Please contact
+                support or your workshop administrator.
+              </p>
+              <div className="pt-2 flex justify-center">
+                <form action={signOutAction}>
+                  <Button variant="outline" size="sm" type="submit">
+                    Sign Out
+                  </Button>
+                </form>
+              </div>
+            </div>
+          </div>
+        );
+      }
+    }
+    throw err;
+  }
+
   if (!user) {
     redirect("/login");
   }
 
-  const context = await getProviderContext();
   if (!context) {
     redirect("/onboarding");
   }

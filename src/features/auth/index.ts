@@ -28,6 +28,8 @@ export {
 
 export {
   AuthError,
+  isUnauthenticatedAuthError,
+  type AuthErrorCode,
   type AuthenticatedUser,
   type ProviderContext,
   type ProviderMembership,
