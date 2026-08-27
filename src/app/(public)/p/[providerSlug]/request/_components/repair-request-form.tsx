@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import Link from "next/link";
+import { useActionState, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -15,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Textarea } from "@/components/ui/textarea";
 import type { ProviderServiceMode } from "@/features/providers";
+import { cn } from "@/lib/utils";
 
 import {
   submitRepairRequestAction,
@@ -28,6 +30,36 @@ const SERVICE_MODE_LABELS = {
   OTHER: "Other arrangement",
 } as const;
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to fallback
+    }
+  }
+
+  if (typeof document !== "undefined") {
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "absolute";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const success = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return Boolean(success);
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 function FieldError({
   field,
   state,
@@ -37,6 +69,127 @@ function FieldError({
 }) {
   const message = state?.fieldErrors?.[field];
   return message ? <p className="text-xs text-destructive">{message}</p> : null;
+}
+
+function RequestReceiptCard({
+  referenceCode,
+  providerName,
+}: {
+  referenceCode: string;
+  providerName: string;
+}) {
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCopyCode = async () => {
+    const success = await copyTextToClipboard(referenceCode);
+    if (success) {
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2500);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://tracknologia.com";
+    const trackUrl = `${origin}/track?code=${encodeURIComponent(referenceCode)}`;
+
+    const success = await copyTextToClipboard(trackUrl);
+    if (success) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
+  };
+
+  return (
+    <Card className="border-primary/20 shadow-xs">
+      <CardHeader>
+        <div className="mb-2 inline-flex w-fit items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+          <span className="inline-block size-1.5 rounded-full bg-primary" />
+          Request submitted
+        </div>
+        <CardTitle className="text-2xl">
+          Request sent to {providerName}
+        </CardTitle>
+        <CardDescription>
+          Provider will review your information before creating an active
+          repair.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-muted/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Request Reference Code
+            </p>
+            <p className="mt-1 font-mono text-xl font-bold tracking-wider text-foreground">
+              {referenceCode}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant={copiedCode ? "default" : "outline"}
+              size="sm"
+              onClick={handleCopyCode}
+              aria-label="Copy reference code to clipboard"
+              className="w-full shrink-0 sm:w-auto"
+            >
+              {copiedCode ? "Copied code" : "Copy code"}
+            </Button>
+            <Button
+              type="button"
+              variant={copiedLink ? "default" : "outline"}
+              size="sm"
+              onClick={handleCopyLink}
+              aria-label="Copy direct tracking link to clipboard"
+              className="w-full shrink-0 sm:w-auto"
+            >
+              {copiedLink ? "Copied link" : "Copy link"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-2xl border border-border/80 bg-background p-4 text-sm text-muted-foreground">
+          <p className="font-semibold text-foreground">What happens next?</p>
+          <ul className="list-inside list-disc space-y-1.5">
+            <li>
+              You can track your request status anytime using this reference
+              code.
+            </li>
+            <li>
+              When the provider reviews and accepts your request, active repair
+              tracking and updates will appear on the same tracking page.
+            </li>
+          </ul>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Link
+            href={`/track?code=${encodeURIComponent(referenceCode)}`}
+            className={cn(
+              buttonVariants({ variant: "default" }),
+              "w-full sm:w-auto",
+            )}
+          >
+            Track status now
+          </Link>
+          <Link
+            href="/"
+            className={cn(
+              buttonVariants({ variant: "outline" }),
+              "w-full sm:w-auto",
+            )}
+          >
+            Back to home
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 interface RepairRequestFormProps {
@@ -57,32 +210,10 @@ export function RepairRequestForm({
 
   if (state?.receipt) {
     return (
-      <Card className="border-primary/20">
-        <CardHeader>
-          <div className="mb-2 inline-flex w-fit rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-            Request submitted
-          </div>
-          <CardTitle>Request sent to {providerName}</CardTitle>
-          <CardDescription>
-            Provider will review your information before any Repair is created.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-2xl border border-border bg-muted/40 p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Request Reference
-            </p>
-            <p className="mt-1 font-mono text-lg font-semibold tracking-wide text-foreground">
-              {state.receipt.referenceCode}
-            </p>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Save this reference for your records. It is not a Repair Tracking
-            Code. Tracking begins only after Provider accepts Request and
-            creates Repair.
-          </p>
-        </CardContent>
-      </Card>
+      <RequestReceiptCard
+        referenceCode={state.receipt.referenceCode}
+        providerName={providerName}
+      />
     );
   }
 

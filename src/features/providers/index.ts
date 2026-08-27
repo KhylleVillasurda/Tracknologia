@@ -8,6 +8,7 @@ export {
   setServiceModes,
   updateCurrentProviderUserProfile,
   updateProviderProfile,
+  isProviderNameConflictError,
   type CreateStaffInvitationResult,
   type RemoveStaffMemberResult,
 } from "./commands";

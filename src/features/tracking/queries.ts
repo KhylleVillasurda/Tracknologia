@@ -3,15 +3,14 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ServiceMode } from "@/features/providers";
-import type { RepairStatus } from "@/features/repairs";
 import { createPublicOperationClient } from "@/lib/supabase/service";
 
 import { lookupPublicRepairRecord } from "./persistence";
 import { trackingCodeSchema } from "./schemas";
-import type { PublicRepairView } from "./types";
+import type { PublicRepairView, TrackingStatus } from "./types";
 
 const STATUS_PRESENTATION: Record<
-  RepairStatus,
+  TrackingStatus,
   { label: string; description: string }
 > = {
   IN_PROGRESS: {
@@ -35,6 +34,16 @@ const STATUS_PRESENTATION: Record<
   COMPLETED: {
     label: "Completed",
     description: "Repair and device handover are complete.",
+  },
+  SUBMITTED: {
+    label: "Request Submitted",
+    description:
+      "Provider has received your repair request and is reviewing it. Active repair tracking begins once accepted.",
+  },
+  DECLINED: {
+    label: "Request Declined",
+    description:
+      "Provider was unable to accept this repair request. Please contact the provider for alternative options.",
   },
 };
 
@@ -65,7 +74,7 @@ function composeDeviceSummary(
 }
 
 function getReadyHandoverMessage(
-  currentStatus: RepairStatus,
+  currentStatus: TrackingStatus,
   serviceMode: ServiceMode | null,
 ) {
   if (currentStatus !== "READY") {
@@ -92,7 +101,8 @@ export async function lookupRepairByTrackingCode(
     return null;
   }
 
-  const status = STATUS_PRESENTATION[record.current_status];
+  const currentStatus = record.current_status;
+  const status = STATUS_PRESENTATION[currentStatus];
 
   return {
     providerDisplayName: record.provider_display_name,
@@ -101,7 +111,7 @@ export async function lookupRepairByTrackingCode(
       record.brand,
       record.model,
     ),
-    currentStatus: record.current_status,
+    currentStatus,
     statusLabel: status.label,
     statusDescription: status.description,
     serviceMode: record.service_mode,
@@ -109,7 +119,7 @@ export async function lookupRepairByTrackingCode(
       ? SERVICE_MODE_LABELS[record.service_mode]
       : null,
     handoverMessage: getReadyHandoverMessage(
-      record.current_status,
+      currentStatus,
       record.service_mode,
     ),
     lastUpdatedAt: record.last_updated_at,
@@ -117,5 +127,7 @@ export async function lookupRepairByTrackingCode(
       message: update.message,
       createdAt: update.created_at,
     })),
+    trackingType: record.tracking_type,
+    trackingCode: record.reference_code,
   };
 }

@@ -1746,7 +1746,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     }
   });
 
-  it("slug collision path produces distinct durable slugs under concurrent Provider creation", async () => {
+  it("rejects duplicate Provider name under concurrent creation and preserves single durable Provider", async () => {
     const userA = await createTestUser(
       adminClient,
       uniqueEmail("slug-a"),
@@ -1759,11 +1759,11 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     );
     const authA = await signInTestUser(userA.email, password);
     const authB = await signInTestUser(userB.email, password);
-    const providerName = uniqueName("Same Slug Shop");
+    const providerName = uniqueName("Strict Slug Shop");
     const createdProviderIds: string[] = [];
 
     try {
-      const results = await Promise.all([
+      const attempts = await Promise.allSettled([
         createProviderAs(authA.client, {
           displayName: providerName,
           ownerDisplayName: uniqueName("Owner A"),
@@ -1773,21 +1773,38 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
           ownerDisplayName: uniqueName("Owner B"),
         }),
       ]);
-      createdProviderIds.push(...results.map((result) => result.providerId));
 
-      expect(results[0].slug).not.toBe(results[1].slug);
-      expect(new Set(results.map((result) => result.slug)).size).toBe(2);
+      const fulfilled = attempts.filter(
+        (
+          a,
+        ): a is PromiseFulfilledResult<{
+          providerId: string;
+          membershipId: string;
+          slug: string;
+        }> => a.status === "fulfilled",
+      );
+      const rejected = attempts.filter(
+        (a): a is PromiseRejectedResult => a.status === "rejected",
+      );
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason?.message).toMatch(
+        /A provider with this name already exists\. Please choose a different name\./,
+      );
+
+      const winningProvider = fulfilled[0].value;
+      createdProviderIds.push(winningProvider.providerId);
 
       const durable = assertSupabaseSuccess(
         await adminClient
           .from("providers")
-          .select("slug")
-          .in("id", createdProviderIds),
-        "read durable concurrent Provider slugs",
+          .select("id, slug, display_name")
+          .eq("id", winningProvider.providerId)
+          .single(),
+        "read durable winning Provider",
       );
-      expect(durable.data?.map((row) => row.slug).sort()).toEqual(
-        results.map((result) => result.slug).sort(),
-      );
+      expect(durable.data?.display_name).toBe(providerName);
     } finally {
       await cleanupFixture(adminClient, {
         providerIds: createdProviderIds,
@@ -3200,7 +3217,9 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "last_updated_at",
         "model",
         "provider_display_name",
+        "reference_code",
         "service_mode",
+        "tracking_type",
       ]);
       expect(publicRow).toMatchObject({
         provider_display_name: "Public Tracking Provider",
@@ -3209,7 +3228,20 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         model: "IdeaPad 3",
         current_status: "IN_PROGRESS",
         service_mode: "DROP_OFF",
+        tracking_type: "REPAIR",
+        reference_code: receipt.tracking_code,
       });
+
+      const anonRpcLookup = await anonClient.rpc("lookup_public_repair", {
+        p_tracking_code: receipt.tracking_code,
+      });
+      const memberRpcLookup = await auth.client.rpc("lookup_public_repair", {
+        p_tracking_code: receipt.tracking_code,
+      });
+      expect(anonRpcLookup.error).not.toBeNull();
+      expect(anonRpcLookup.error?.code).toBe("42501");
+      expect(memberRpcLookup.error).not.toBeNull();
+      expect(memberRpcLookup.error?.code).toBe("42501");
       expect(publicRow.customer_updates).toHaveLength(25);
       expect(publicRow.customer_updates[0]).toMatchObject({
         message: "Customer-visible update 27",
@@ -3351,6 +3383,8 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         }),
         "configure Request-origin Tracking Service Modes",
       );
+
+      // 1. Check SUBMITTED request tracking via reference code
       const submitted = assertSupabaseSuccess(
         await submitRepairRequestAs(serviceClient, provider.slug),
         "submit Request for public Tracking",
@@ -3361,7 +3395,7 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       const request = assertSupabaseSuccess(
         await adminClient
           .from("repair_requests")
-          .select("id")
+          .select("id, submitted_at")
           .eq("reference_code", requestReceipt.reference_code)
           .single(),
         "resolve Request for public Tracking",
@@ -3370,6 +3404,63 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         throw new Error("Public Tracking Request fixture was not created");
       }
 
+      const submittedLookup = assertSupabaseSuccess(
+        await serviceClient.rpc("lookup_public_repair", {
+          p_tracking_code: requestReceipt.reference_code,
+        }),
+        "look up submitted Request publicly",
+      );
+      const submittedRow = Array.isArray(submittedLookup.data)
+        ? submittedLookup.data[0]
+        : submittedLookup.data;
+      expect(submittedRow).toMatchObject({
+        provider_display_name: "Request Tracking Provider",
+        current_status: "SUBMITTED",
+        tracking_type: "REQUEST",
+        reference_code: requestReceipt.reference_code,
+        customer_updates: [],
+      });
+
+      // 2. Check DECLINED request tracking via reference code
+      const secondSubmitted = assertSupabaseSuccess(
+        await submitRepairRequestAs(serviceClient, provider.slug),
+        "submit second Request for decline testing",
+      );
+      const declinedReceipt = Array.isArray(secondSubmitted.data)
+        ? secondSubmitted.data[0]
+        : secondSubmitted.data;
+      const secondRequest = assertSupabaseSuccess(
+        await adminClient
+          .from("repair_requests")
+          .select("id")
+          .eq("reference_code", declinedReceipt.reference_code)
+          .single(),
+        "resolve second Request for decline",
+      );
+      assertSupabaseSuccess(
+        await auth.client.rpc("decline_repair_request", {
+          p_request_id: secondRequest.data!.id,
+        }),
+        "decline second Request",
+      );
+      const declinedLookup = assertSupabaseSuccess(
+        await serviceClient.rpc("lookup_public_repair", {
+          p_tracking_code: declinedReceipt.reference_code,
+        }),
+        "look up declined Request publicly",
+      );
+      const declinedRow = Array.isArray(declinedLookup.data)
+        ? declinedLookup.data[0]
+        : declinedLookup.data;
+      expect(declinedRow).toMatchObject({
+        provider_display_name: "Request Tracking Provider",
+        current_status: "DECLINED",
+        tracking_type: "REQUEST",
+        reference_code: declinedReceipt.reference_code,
+        customer_updates: [],
+      });
+
+      // 3. Accept first Request, create Repair, append customer update, and change status
       const accepted = assertSupabaseSuccess(
         await auth.client.rpc(
           "create_repair_from_request",
@@ -3398,11 +3489,12 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "mark Request-origin Repair READY",
       );
 
+      // Verify lookup using TRK tracking code
       const lookup = assertSupabaseSuccess(
         await serviceClient.rpc("lookup_public_repair", {
           p_tracking_code: repairReceipt.tracking_code,
         }),
-        "look up Request-origin Repair publicly",
+        "look up Request-origin Repair publicly via TRK code",
       );
       const publicRow = Array.isArray(lookup.data)
         ? lookup.data[0]
@@ -3414,6 +3506,8 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         model: "Verified Model",
         current_status: "READY",
         service_mode: "DROP_OFF",
+        tracking_type: "REPAIR",
+        reference_code: repairReceipt.tracking_code,
         customer_updates: [
           expect.objectContaining({
             message: "Repair is ready for the agreed handover.",
@@ -3423,6 +3517,32 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       expect(publicRow).not.toHaveProperty("origin");
       expect(publicRow).not.toHaveProperty("ticket_number");
       expect(publicRow).not.toHaveProperty("tracking_code");
+
+      // Verify lookup using original REQ reference code seamlessly resolves to active repair details
+      const reqLookupAfterAccept = assertSupabaseSuccess(
+        await serviceClient.rpc("lookup_public_repair", {
+          p_tracking_code: requestReceipt.reference_code,
+        }),
+        "look up accepted Request publicly via REQ reference code",
+      );
+      const reqPublicRow = Array.isArray(reqLookupAfterAccept.data)
+        ? reqLookupAfterAccept.data[0]
+        : reqLookupAfterAccept.data;
+      expect(reqPublicRow).toMatchObject({
+        provider_display_name: "Request Tracking Provider",
+        device_type: "Laptop",
+        brand: "Verified Brand",
+        model: "Verified Model",
+        current_status: "READY",
+        service_mode: "DROP_OFF",
+        tracking_type: "REQUEST",
+        reference_code: requestReceipt.reference_code,
+        customer_updates: [
+          expect.objectContaining({
+            message: "Repair is ready for the agreed handover.",
+          }),
+        ],
+      });
 
       assertSupabaseSuccess(
         await serviceClient.rpc("record_successful_tracking_view", {

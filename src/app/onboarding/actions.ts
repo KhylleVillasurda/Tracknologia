@@ -1,22 +1,22 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
-import {
-  createIndependentProviderSchema,
-  createShopProviderSchema,
-  acceptStaffInvitationSchema,
-  createProvider,
-  acceptStaffInvitation,
-} from "@/features/providers";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import {
+  acceptStaffInvitation,
+  acceptStaffInvitationSchema,
+  createIndependentProviderSchema,
+  createProvider,
+  createShopProviderSchema,
+  isProviderNameConflictError,
+} from "@/features/providers";
+import { createClient } from "@/lib/supabase/server";
 
 export interface OnboardingActionState {
   error?: string;
   success?: string;
   fieldErrors?: Record<string, string>;
 }
-
-import { cookies } from "next/headers";
 
 function readServiceModes(formData: FormData) {
   return formData.getAll("serviceModes").map((value) => {
@@ -87,11 +87,21 @@ export async function onboardIndependentAction(
       supabase,
     );
   } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Failed to create independent provider";
+    const duplicate = isProviderNameConflictError(err);
     return {
-      error:
-        err instanceof Error
-          ? err.message
-          : "Failed to create independent provider",
+      error: duplicate
+        ? "This business name is already taken. Please choose a unique name."
+        : message,
+      fieldErrors: duplicate
+        ? {
+            displayName:
+              "This name is already taken. Please choose a unique name.",
+          }
+        : undefined,
     };
   }
 
@@ -153,9 +163,19 @@ export async function onboardShopAction(
       supabase,
     );
   } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Failed to create shop provider";
+    const duplicate = isProviderNameConflictError(err);
     return {
-      error:
-        err instanceof Error ? err.message : "Failed to create repair shop",
+      error: duplicate
+        ? "This business name is already taken. Please choose a unique name."
+        : message,
+      fieldErrors: duplicate
+        ? {
+            displayName:
+              "This name is already taken. Please choose a unique name.",
+          }
+        : undefined,
     };
   }
 

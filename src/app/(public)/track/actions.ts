@@ -36,8 +36,7 @@ export async function trackRepairAction(
     if (!view) {
       return {
         outcome: "not-found",
-        message:
-          "Repair could not be found. Check Tracking Code and try again.",
+        message: "Status could not be found. Check the code and try again.",
       };
     }
 
