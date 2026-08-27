@@ -112,7 +112,8 @@ function TrackingResult({ view }: { view: PublicRepairView }) {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Progress updates
             </h2>
-            {latestUpdate ? (\n              <div className="space-y-3">
+            {latestUpdate ? (
+              <div className="space-y-3">
                 <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
                   <p className="text-xs font-medium text-muted-foreground">
                     {formatDateTime(latestUpdate.createdAt)}

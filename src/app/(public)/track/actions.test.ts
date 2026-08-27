@@ -4,7 +4,7 @@ import type { PublicRepairView } from "@/features/tracking";
 
 const mocks = vi.hoisted(() => ({
   lookupRepairByTrackingCode: vi.fn(),
-  checkRateLimit: vi.fn(),
+  checkClientRateLimit: vi.fn(),
   recordSuccessfulTrackingView: vi.fn(),
   after: vi.fn((_callback: () => Promise<void> | void) => {}),
 }));
@@ -12,14 +12,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/server", () => ({
   after: mocks.after,
 }));
-vi.mock("@/features/analytics", () => ({
-  recordSuccessfulTrackingView: mocks.recordSuccessfulTrackingView,
-}));
+
 vi.mock("@/features/tracking", () => ({
   lookupRepairByTrackingCode: mocks.lookupRepairByTrackingCode,
 }));
+
+vi.mock("@/features/analytics", () => ({
+  recordSuccessfulTrackingView: mocks.recordSuccessfulTrackingView,
+}));
+
 vi.mock("@/lib/rate-limit", () => ({
-  checkClientRateLimit: mocks.checkRateLimit,
+  checkClientRateLimit: mocks.checkClientRateLimit,
 }));
 
 import { trackRepairAction } from "./actions";
@@ -29,29 +32,29 @@ const TRACKING_CODE = "  trk-0123456789abcdef01234567  ";
 const NORMALIZED_TRACKING_CODE = "TRK-0123456789ABCDEF01234567";
 
 const PUBLIC_VIEW: PublicRepairView = {
-  providerDisplayName: "Jacinth Device Care",
-  deviceSummary: "Lenovo IdeaPad 3 · Laptop",
+  providerDisplayName: "Downtown Repair",
+  deviceSummary: "iPhone 13 Pro",
   currentStatus: "IN_PROGRESS",
   statusLabel: "In progress",
-  statusDescription: "Provider is actively working on your repair.",
-  serviceMode: "DROP_OFF",
-  serviceModeLabel: "Drop-off",
-  handoverMessage: null,
-  lastUpdatedAt: "2026-08-24T03:00:00.000Z",
+  statusDescription: "Device repair is underway.",
   customerUpdates: [],
+  lastUpdatedAt: "2026-08-27T10:00:00.000Z",
+  serviceMode: "DROP_OFF",
+  serviceModeLabel: "Carry-in",
+  handoverMessage: null,
   trackingType: "REPAIR",
   trackingCode: NORMALIZED_TRACKING_CODE,
 };
 
-function trackingFormData() {
+function trackingFormData(code: string = TRACKING_CODE) {
   const formData = new FormData();
-  formData.set("trackingCode", TRACKING_CODE);
+  formData.set("trackingCode", code);
   return formData;
 }
 
 beforeEach(() => {
-  vi.resetAllMocks();
-  mocks.checkRateLimit.mockResolvedValue({
+  vi.clearAllMocks();
+  mocks.checkClientRateLimit.mockResolvedValue({
     allowed: true,
     retryAfterSeconds: 0,
   });
@@ -80,7 +83,9 @@ describe("trackRepairAction", () => {
     expect(mocks.after).toHaveBeenCalledTimes(1);
     expect(analyticsInvoked).toBe(false);
 
-    await deferredCallback?.();
+    if (deferredCallback) {
+      await (deferredCallback as () => Promise<void> | void)();
+    }
     expect(analyticsInvoked).toBe(true);
     expect(mocks.recordSuccessfulTrackingView).toHaveBeenCalledWith(
       TRACKING_CODE,
@@ -102,7 +107,7 @@ describe("trackRepairAction", () => {
     expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
   });
 
-  it("does not schedule Analytics when the code does not exist", async () => {
+  it("returns a neutral failure when tracking code is unknown", async () => {
     mocks.lookupRepairByTrackingCode.mockResolvedValue(null);
 
     const result = await trackRepairAction(null, trackingFormData());
@@ -115,10 +120,10 @@ describe("trackRepairAction", () => {
     expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
   });
 
-  it("does not schedule Analytics when rate limited", async () => {
-    mocks.checkRateLimit.mockResolvedValue({
+  it("returns an unavailable failure when durable abuse control blocks lookup", async () => {
+    mocks.checkClientRateLimit.mockResolvedValue({
       allowed: false,
-      retryAfterSeconds: 12,
+      retryAfterSeconds: 60,
     });
 
     const result = await trackRepairAction(null, trackingFormData());
