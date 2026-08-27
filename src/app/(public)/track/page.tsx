@@ -15,8 +15,12 @@ export default async function TrackRepairPage({
   searchParams?: Promise<{ code?: string }>;
 }) {
   const params = await searchParams;
-  const initialCode =
+  const rawCode =
     typeof params?.code === "string" ? params.code.trim().toUpperCase() : "";
+
+  // Only allow REQ reference codes to be prefilled via query parameter (e.g. from submission receipt).
+  // TRK tracking codes must never be accepted via URL query param to preserve credential privacy.
+  const initialCode = /^REQ-[A-F0-9]{16}$/i.test(rawCode) ? rawCode : "";
 
   return (
     <main className="min-h-screen bg-muted/30 px-4 py-8 sm:px-6 sm:py-12">

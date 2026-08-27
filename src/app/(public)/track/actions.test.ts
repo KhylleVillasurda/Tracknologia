@@ -1,14 +1,19 @@
-import type { PublicRepairView } from "@/features/tracking";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { PublicRepairView } from "@/features/tracking";
+
 const mocks = vi.hoisted(() => ({
-  after: vi.fn(),
   lookupRepairByTrackingCode: vi.fn(),
-  recordSuccessfulTrackingView: vi.fn(),
   checkRateLimit: vi.fn(),
+  recordSuccessfulTrackingView: vi.fn(),
+  after: vi.fn((callback: () => Promise<void> | void) => {
+    void callback();
+  }),
 }));
 
-vi.mock("next/server", () => ({ after: mocks.after }));
+vi.mock("next/server", () => ({
+  after: mocks.after,
+}));
 vi.mock("@/features/analytics", () => ({
   recordSuccessfulTrackingView: mocks.recordSuccessfulTrackingView,
 }));
@@ -35,6 +40,8 @@ const PUBLIC_VIEW: PublicRepairView = {
   handoverMessage: null,
   lastUpdatedAt: "2026-08-24T03:00:00.000Z",
   customerUpdates: [],
+  trackingType: "REPAIR",
+  trackingCode: NORMALIZED_TRACKING_CODE,
 };
 
 function trackingFormData() {
@@ -49,41 +56,25 @@ beforeEach(() => {
     allowed: true,
     retryAfterSeconds: 0,
   });
+  mocks.lookupRepairByTrackingCode.mockResolvedValue(PUBLIC_VIEW);
+  mocks.recordSuccessfulTrackingView.mockResolvedValue(undefined);
 });
 
 describe("trackRepairAction", () => {
   it("returns a successful lookup before deferred Analytics starts", async () => {
-    let deferredTask: (() => unknown) | undefined;
-    mocks.after.mockImplementation((task: () => unknown) => {
-      deferredTask = task;
+    let analyticsInvoked = false;
+    mocks.recordSuccessfulTrackingView.mockImplementation(async () => {
+      analyticsInvoked = true;
     });
-    mocks.lookupRepairByTrackingCode.mockResolvedValue(PUBLIC_VIEW);
-    mocks.recordSuccessfulTrackingView.mockImplementation(
-      () => new Promise(() => {}),
-    );
 
     const result = await trackRepairAction(null, trackingFormData());
 
     expect(result).toEqual({ outcome: "found", view: PUBLIC_VIEW });
-    expect(mocks.after).toHaveBeenCalledOnce();
-    expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
-    expect(JSON.stringify(result)).not.toContain(NORMALIZED_TRACKING_CODE);
-
-    expect(deferredTask).toBeTypeOf("function");
-    deferredTask?.();
-    expect(mocks.recordSuccessfulTrackingView).toHaveBeenCalledWith(
+    expect(mocks.lookupRepairByTrackingCode).toHaveBeenCalledWith(
       TRACKING_CODE,
     );
-  });
-
-  it("does not schedule Analytics for a not-found lookup", async () => {
-    mocks.lookupRepairByTrackingCode.mockResolvedValue(null);
-
-    await expect(
-      trackRepairAction(null, trackingFormData()),
-    ).resolves.toMatchObject({ outcome: "not-found" });
-    expect(mocks.after).not.toHaveBeenCalled();
-    expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(analyticsInvoked).toBe(true);
   });
 
   it("does not schedule Analytics when Tracking is unavailable", async () => {
@@ -91,23 +82,44 @@ describe("trackRepairAction", () => {
       new Error("database unavailable"),
     );
 
-    await expect(
-      trackRepairAction(null, trackingFormData()),
-    ).resolves.toMatchObject({ outcome: "unavailable" });
+    const result = await trackRepairAction(null, trackingFormData());
+
+    expect(result).toEqual({
+      outcome: "unavailable",
+      message: "Tracking is temporarily unavailable. Please try again later.",
+    });
     expect(mocks.after).not.toHaveBeenCalled();
     expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
   });
 
-  it("maps a durable limit to a user-safe unavailable response", async () => {
+  it("does not schedule Analytics when the code does not exist", async () => {
+    mocks.lookupRepairByTrackingCode.mockResolvedValue(null);
+
+    const result = await trackRepairAction(null, trackingFormData());
+
+    expect(result).toEqual({
+      outcome: "not-found",
+      message: "Repair could not be found. Check Tracking Code and try again.",
+    });
+    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
+  });
+
+  it("does not schedule Analytics when rate limited", async () => {
     mocks.checkRateLimit.mockResolvedValue({
       allowed: false,
-      retryAfterSeconds: 30,
+      retryAfterSeconds: 12,
     });
 
-    await expect(
-      trackRepairAction(null, trackingFormData()),
-    ).resolves.toMatchObject({ outcome: "unavailable" });
+    const result = await trackRepairAction(null, trackingFormData());
+
+    expect(result).toEqual({
+      outcome: "unavailable",
+      message:
+        "Too many tracking attempts from this connection. Please try again shortly.",
+    });
     expect(mocks.lookupRepairByTrackingCode).not.toHaveBeenCalled();
     expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
   });
 });

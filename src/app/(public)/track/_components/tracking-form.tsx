@@ -167,8 +167,8 @@ export function TrackingForm({ initialCode = "" }: { initialCode?: string }) {
         <CardHeader>
           <CardTitle className="text-lg">Enter Tracking Code</CardTitle>
           <CardDescription>
-            Enter your Tracking Code (<span className="font-mono">TRK-</span>) or
-            Request Reference Code (<span className="font-mono">REQ-</span>).
+            Enter your Tracking Code (<span className="font-mono">TRK-</span>)
+            or Request Reference Code (<span className="font-mono">REQ-</span>).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -186,7 +186,9 @@ export function TrackingForm({ initialCode = "" }: { initialCode?: string }) {
                 placeholder="e.g. TRK-0123... or REQ-0123..."
                 className="h-11 font-mono uppercase tracking-wide"
                 aria-invalid={Boolean(errorMessage)}
-                aria-describedby={errorMessage ? "tracking-code-error" : undefined}
+                aria-describedby={
+                  errorMessage ? "tracking-code-error" : undefined
+                }
                 required
               />
               {errorMessage && (
@@ -200,7 +202,11 @@ export function TrackingForm({ initialCode = "" }: { initialCode?: string }) {
               )}
             </div>
 
-            <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+            <Button
+              type="submit"
+              disabled={pending}
+              className="w-full sm:w-auto"
+            >
               {pending ? (
                 <>
                   <LoadingSpinner className="size-4" />
