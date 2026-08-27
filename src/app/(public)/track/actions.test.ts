@@ -6,9 +6,7 @@ const mocks = vi.hoisted(() => ({
   lookupRepairByTrackingCode: vi.fn(),
   checkRateLimit: vi.fn(),
   recordSuccessfulTrackingView: vi.fn(),
-  after: vi.fn((callback: () => Promise<void> | void) => {
-    void callback();
-  }),
+  after: vi.fn((_callback: () => Promise<void> | void) => {}),
 }));
 
 vi.mock("next/server", () => ({
@@ -25,6 +23,7 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 import { trackRepairAction } from "./actions";
+import { getProgressEmptyMessage } from "./_components/tracking-form";
 
 const TRACKING_CODE = "  trk-0123456789abcdef01234567  ";
 const NORMALIZED_TRACKING_CODE = "TRK-0123456789ABCDEF01234567";
@@ -62,6 +61,11 @@ beforeEach(() => {
 
 describe("trackRepairAction", () => {
   it("returns a successful lookup before deferred Analytics starts", async () => {
+    let deferredCallback: (() => Promise<void> | void) | null = null;
+    mocks.after.mockImplementation((callback: () => Promise<void> | void) => {
+      deferredCallback = callback;
+    });
+
     let analyticsInvoked = false;
     mocks.recordSuccessfulTrackingView.mockImplementation(async () => {
       analyticsInvoked = true;
@@ -74,7 +78,13 @@ describe("trackRepairAction", () => {
       TRACKING_CODE,
     );
     expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(analyticsInvoked).toBe(false);
+
+    await deferredCallback?.();
     expect(analyticsInvoked).toBe(true);
+    expect(mocks.recordSuccessfulTrackingView).toHaveBeenCalledWith(
+      TRACKING_CODE,
+    );
   });
 
   it("does not schedule Analytics when Tracking is unavailable", async () => {
@@ -99,7 +109,7 @@ describe("trackRepairAction", () => {
 
     expect(result).toEqual({
       outcome: "not-found",
-      message: "Repair could not be found. Check Tracking Code and try again.",
+      message: "Status could not be found. Check the code and try again.",
     });
     expect(mocks.after).not.toHaveBeenCalled();
     expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
@@ -121,5 +131,38 @@ describe("trackRepairAction", () => {
     expect(mocks.lookupRepairByTrackingCode).not.toHaveBeenCalled();
     expect(mocks.after).not.toHaveBeenCalled();
     expect(mocks.recordSuccessfulTrackingView).not.toHaveBeenCalled();
+  });
+});
+
+describe("getProgressEmptyMessage", () => {
+  it("renders review guidance for SUBMITTED requests", () => {
+    const msg = getProgressEmptyMessage("SUBMITTED");
+    expect(msg).toBe(
+      "Your request is awaiting provider review. Updates will appear here once accepted.",
+    );
+  });
+
+  it("renders terminal decline copy for DECLINED requests and never implies future acceptance", () => {
+    const msg = getProgressEmptyMessage("DECLINED");
+    expect(msg).toBe(
+      "This request was declined. No repair progress updates are available for this request.",
+    );
+    expect(msg.toLowerCase()).not.toContain("awaiting");
+    expect(msg.toLowerCase()).not.toContain("once accepted");
+  });
+
+  it("renders public customer updates fallback for active repair states", () => {
+    expect(getProgressEmptyMessage("IN_PROGRESS")).toBe(
+      "No public customer updates have been posted yet. Check back soon.",
+    );
+    expect(getProgressEmptyMessage("WAITING_FOR_PARTS")).toBe(
+      "No public customer updates have been posted yet. Check back soon.",
+    );
+    expect(getProgressEmptyMessage("READY")).toBe(
+      "No public customer updates have been posted yet. Check back soon.",
+    );
+    expect(getProgressEmptyMessage("COMPLETED")).toBe(
+      "No public customer updates have been posted yet. Check back soon.",
+    );
   });
 });

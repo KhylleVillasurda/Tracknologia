@@ -28,6 +28,16 @@ const STATUS_STYLES: Record<TrackingStatus, string> = {
   DECLINED: "border-destructive/20 bg-destructive/10 text-destructive",
 };
 
+export function getProgressEmptyMessage(status: TrackingStatus): string {
+  if (status === "SUBMITTED") {
+    return "Your request is awaiting provider review. Updates will appear here once accepted.";
+  }
+  if (status === "DECLINED") {
+    return "This request was declined. No repair progress updates are available for this request.";
+  }
+  return "No public customer updates have been posted yet. Check back soon.";
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -42,8 +52,6 @@ function formatDateTime(value: string) {
 
 function TrackingResult({ view }: { view: PublicRepairView }) {
   const [latestUpdate, ...earlierUpdates] = view.customerUpdates;
-  const isRequest =
-    view.currentStatus === "SUBMITTED" || view.currentStatus === "DECLINED";
 
   return (
     <section aria-live="polite" className="space-y-5">
@@ -104,8 +112,7 @@ function TrackingResult({ view }: { view: PublicRepairView }) {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Progress updates
             </h2>
-            {latestUpdate ? (
-              <div className="space-y-3">
+            {latestUpdate ? (\n              <div className="space-y-3">
                 <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
                   <p className="text-xs font-medium text-muted-foreground">
                     {formatDateTime(latestUpdate.createdAt)}
@@ -138,9 +145,7 @@ function TrackingResult({ view }: { view: PublicRepairView }) {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                {isRequest
-                  ? "Your request is awaiting provider review. Updates will appear here once accepted."
-                  : "No public customer updates have been posted yet. Check back soon."}
+                {getProgressEmptyMessage(view.currentStatus)}
               </p>
             )}
           </div>
