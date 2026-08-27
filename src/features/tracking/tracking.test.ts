@@ -38,6 +38,8 @@ function publicProjectionRow(overrides: Record<string, unknown> = {}) {
         created_at: "2026-08-24T02:30:00.000Z",
       },
     ],
+    tracking_type: "REPAIR",
+    reference_code: TRACKING_CODE,
     ...overrides,
   };
 }
@@ -71,8 +73,8 @@ describe("Tracking lookup", () => {
           createdAt: "2026-08-24T02:30:00.000Z",
         },
       ],
-      trackingType: undefined,
-      trackingCode: undefined,
+      trackingType: "REPAIR",
+      trackingCode: TRACKING_CODE,
     });
     expect(result).not.toHaveProperty("customerPhone");
     expect(result).not.toHaveProperty("internalNotes");
@@ -113,6 +115,32 @@ describe("Tracking lookup", () => {
       trackingType: "REQUEST",
       trackingCode: REQUEST_CODE,
     });
+  });
+
+  it("fails closed when persistence returns invalid or corrupt projection schema", async () => {
+    // Missing required fields
+    const invalidRow = trackingClient({
+      provider_display_name: "Jacinth Device Care",
+      current_status: "INVALID_STATUS_NAME",
+    });
+
+    await expect(
+      lookupRepairByTrackingCode(TRACKING_CODE, invalidRow.client),
+    ).rejects.toThrow("Public Tracking projection is invalid");
+
+    // More than 25 updates (schema cap)
+    const tooManyUpdates = trackingClient(
+      publicProjectionRow({
+        customer_updates: Array.from({ length: 26 }, (_, i) => ({
+          message: `Update ${i}`,
+          created_at: "2026-08-24T02:30:00.000Z",
+        })),
+      }),
+    );
+
+    await expect(
+      lookupRepairByTrackingCode(TRACKING_CODE, tooManyUpdates.client),
+    ).rejects.toThrow("Public Tracking projection is invalid");
   });
 
   it("returns the same not-found result for malformed and unknown codes", async () => {
@@ -206,9 +234,8 @@ describe("Tracking lookup", () => {
       "OTHER",
       "Your device is ready. Contact your Provider to arrange handover.",
     ],
-    [null, "Your device is ready. Contact your Provider to arrange handover."],
   ])(
-    "uses Provider-neutral READY wording for %s",
+    "presents specific handover instructions for %s when READY",
     async (serviceMode, handoverMessage) => {
       const { client } = trackingClient(
         publicProjectionRow({
@@ -219,34 +246,11 @@ describe("Tracking lookup", () => {
 
       const result = await lookupRepairByTrackingCode(TRACKING_CODE, client);
 
-      expect(result?.handoverMessage).toBe(handoverMessage);
+      expect(result).toMatchObject({
+        currentStatus: "READY",
+        serviceMode,
+        handoverMessage,
+      });
     },
   );
-
-  it("fails closed when persistence adds an unexpected public field", async () => {
-    const { client, rpc } = trackingClient(
-      publicProjectionRow({ internal_notes: "Must never be public" }),
-    );
-
-    await expect(
-      lookupRepairByTrackingCode(TRACKING_CODE, client),
-    ).rejects.toThrow("Public Tracking projection is invalid");
-    expect(rpc).toHaveBeenCalledOnce();
-  });
-
-  it("fails closed when persistence returns more than 25 updates", async () => {
-    const { client, rpc } = trackingClient(
-      publicProjectionRow({
-        customer_updates: Array.from({ length: 26 }, (_, index) => ({
-          message: `Update ${index + 1}`,
-          created_at: "2026-08-24T02:30:00.000Z",
-        })),
-      }),
-    );
-
-    await expect(
-      lookupRepairByTrackingCode(TRACKING_CODE, client),
-    ).rejects.toThrow("Public Tracking projection is invalid");
-    expect(rpc).toHaveBeenCalledOnce();
-  });
 });

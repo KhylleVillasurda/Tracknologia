@@ -19,6 +19,6 @@ export interface PublicRepairView {
   handoverMessage: string | null;
   lastUpdatedAt: string;
   customerUpdates: PublicCustomerUpdate[];
-  trackingType?: "REPAIR" | "REQUEST";
-  trackingCode?: string;
+  trackingType: "REPAIR" | "REQUEST";
+  trackingCode: string;
 }

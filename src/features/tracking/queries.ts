@@ -101,11 +101,8 @@ export async function lookupRepairByTrackingCode(
     return null;
   }
 
-  const currentStatus = record.current_status as TrackingStatus;
-  const status = STATUS_PRESENTATION[currentStatus] ?? {
-    label: currentStatus,
-    description: "Current status for your repair.",
-  };
+  const currentStatus = record.current_status;
+  const status = STATUS_PRESENTATION[currentStatus];
 
   return {
     providerDisplayName: record.provider_display_name,

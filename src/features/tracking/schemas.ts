@@ -9,13 +9,23 @@ export const trackingCodeSchema = z
   .toUpperCase()
   .regex(/^(TRK-[A-F0-9]{24}|REQ-[A-F0-9]{16})$/);
 
+export const trackingStatusSchema = z.enum([
+  "IN_PROGRESS",
+  "WAITING_FOR_PARTS",
+  "AWAITING_APPROVAL",
+  "READY",
+  "COMPLETED",
+  "SUBMITTED",
+  "DECLINED",
+]);
+
 export const publicRepairProjectionSchema = z
   .object({
     provider_display_name: z.string().trim().min(1).max(120),
     device_type: z.string().trim().min(1).max(80),
     brand: z.string().max(80).nullable(),
     model: z.string().max(80).nullable(),
-    current_status: z.string().min(1),
+    current_status: trackingStatusSchema,
     service_mode: serviceModeEnum.nullable(),
     last_updated_at: z.string().min(1),
     customer_updates: z
@@ -28,8 +38,8 @@ export const publicRepairProjectionSchema = z
           .strict(),
       )
       .max(25),
-    tracking_type: z.enum(["REPAIR", "REQUEST"]).optional(),
-    reference_code: z.string().optional(),
+    tracking_type: z.enum(["REPAIR", "REQUEST"]),
+    reference_code: z.string().min(1),
   })
   .strict();
 
