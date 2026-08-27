@@ -18,6 +18,7 @@ Reduce friction for Customers who want to provide device/problem information bef
 - Target exactly one Provider through a provider-specific request page.
 - Capture useful but lightweight customer/device/problem information.
 - Record a Request Reference distinct from Repair ticket/tracking identifiers.
+- Allow Customers to track request progress seamlessly via their Request Reference Code (`REQ-...`) on `/track`.
 - Give the owning Provider a private Request inbox and detail view.
 - Allow the Provider to decline a Request without creating a Repair.
 - Allow the Provider to verify/correct customer-supplied data before accepting.
@@ -128,10 +129,10 @@ Create RepairRequest(SUBMITTED)
         ↓
 Generate Request Reference
         ↓
-Return submission receipt
+Return submission receipt with reference code and direct track link
 ```
 
-No Repair is created at this stage.
+No Repair is created at this stage. Customers can check the status of their Request anytime at `/track?code=REQ-...`.
 
 ## Provider review workflow
 
@@ -180,7 +181,9 @@ This operation should be atomic enough that a persistence failure cannot leave a
 ```text
 SUBMITTED Request
         ↓
-Provider declines
+Provider chooses Decline
+        ↓
+Validate Request still SUBMITTED
         ↓
 Request.status = DECLINED
         ↓
@@ -240,7 +243,7 @@ Once created, the Repair does not need the Repair Requests Module for normal lif
 
 ### Tracking
 
-A Request Reference is not a Tracking Code. Public Repair tracking begins only after a Repair exists.
+A Request Reference Code (`REQ-...`) allows accountless public lookup on `/track` to view intake status before acceptance, and seamlessly displays active repair progress once accepted.
 
 ### Analytics
 
