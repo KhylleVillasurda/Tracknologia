@@ -45,11 +45,10 @@ import type {
 export function isProviderNameConflictError(err: unknown): boolean {
   if (!err) return false;
   const message = err instanceof Error ? err.message : String(err);
-  const normalized = message.toLowerCase();
   return (
-    normalized.includes("already exists") ||
-    normalized.includes("taken") ||
-    normalized.includes("providers_slug_key")
+    message.includes(
+      "A provider with this name already exists. Please choose a different name.",
+    ) || message.includes("providers_slug_key")
   );
 }
 
