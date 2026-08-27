@@ -27,8 +27,8 @@ AS $$
 DECLARE
   v_normalized_code TEXT;
 BEGIN
-  -- Strict input validation
-  IF p_tracking_code IS NULL OR char_length(p_tracking_code) > 128 THEN
+  -- Bound hostile direct RPC input before normalization or pattern matching.
+  IF p_tracking_code IS NULL OR octet_length(p_tracking_code) > 128 THEN
     RETURN;
   END IF;
 
@@ -44,31 +44,35 @@ BEGIN
       r.model,
       r.current_status::TEXT,
       r.service_mode,
-      r.updated_at,
-      COALESCE(
-        (
-          SELECT jsonb_agg(
-            jsonb_build_object(
-              'message', cu.message,
-              'created_at', cu.created_at
-            )
-            ORDER BY cu.created_at DESC
-          )
-          FROM (
-            SELECT cu_inner.message, cu_inner.created_at
-            FROM public.customer_updates cu_inner
-            WHERE cu_inner.repair_id = r.id
-            ORDER BY cu_inner.created_at DESC
-            LIMIT 25
-          ) cu
-        ),
-        '[]'::JSONB
+      greatest(
+        r.updated_at,
+        coalesce(recent_updates.latest_update_at, r.updated_at)
       ),
+      coalesce(recent_updates.customer_updates, '[]'::JSONB),
       'REPAIR'::TEXT,
       v_normalized_code
     FROM public.repairs r
     JOIN public.providers p ON p.id = r.provider_id
-    WHERE r.tracking_code = v_normalized_code;
+    LEFT JOIN LATERAL (
+      SELECT
+        max(recent.created_at) AS latest_update_at,
+        jsonb_agg(
+          jsonb_build_object(
+            'message', recent.message,
+            'created_at', recent.created_at
+          )
+          ORDER BY recent.created_at DESC, recent.id DESC
+        ) AS customer_updates
+      FROM (
+        SELECT ru.id, ru.message, ru.created_at
+        FROM public.repair_updates ru
+        WHERE ru.repair_id = r.id
+        ORDER BY ru.created_at DESC, ru.id DESC
+        LIMIT 25
+      ) recent
+    ) recent_updates ON true
+    WHERE r.tracking_code = v_normalized_code
+    LIMIT 1;
     RETURN;
   END IF;
 
@@ -77,40 +81,49 @@ BEGIN
     RETURN QUERY
     SELECT
       p.display_name,
-      COALESCE(r.device_type, rq.device_type),
-      COALESCE(r.brand, rq.brand),
-      COALESCE(r.model, rq.model),
+      coalesce(r.device_type, rq.device_type),
+      coalesce(r.brand, rq.brand),
+      coalesce(r.model, rq.model),
       CASE
         WHEN r.id IS NOT NULL THEN r.current_status::TEXT
         ELSE rq.status::TEXT
       END,
-      COALESCE(r.service_mode, rq.preferred_service_mode),
-      COALESCE(r.updated_at, rq.updated_at),
-      COALESCE(
-        (
-          SELECT jsonb_agg(
-            jsonb_build_object(
-              'message', cu.message,
-              'created_at', cu.created_at
-            )
-            ORDER BY cu.created_at DESC
+      coalesce(r.service_mode, rq.preferred_service_mode),
+      CASE
+        WHEN r.id IS NOT NULL THEN
+          greatest(
+            r.updated_at,
+            coalesce(recent_updates.latest_update_at, r.updated_at)
           )
-          FROM (
-            SELECT cu_inner.message, cu_inner.created_at
-            FROM public.customer_updates cu_inner
-            WHERE cu_inner.repair_id = r.id
-            ORDER BY cu_inner.created_at DESC
-            LIMIT 25
-          ) cu
-        ),
-        '[]'::JSONB
-      ),
+        ELSE
+          coalesce(rq.declined_at, rq.accepted_at, rq.submitted_at)
+      END,
+      coalesce(recent_updates.customer_updates, '[]'::JSONB),
       'REQUEST'::TEXT,
       v_normalized_code
     FROM public.repair_requests rq
     JOIN public.providers p ON p.id = rq.provider_id
     LEFT JOIN public.repairs r ON r.repair_request_id = rq.id
-    WHERE rq.reference_code = v_normalized_code;
+    LEFT JOIN LATERAL (
+      SELECT
+        max(recent.created_at) AS latest_update_at,
+        jsonb_agg(
+          jsonb_build_object(
+            'message', recent.message,
+            'created_at', recent.created_at
+          )
+          ORDER BY recent.created_at DESC, recent.id DESC
+        ) AS customer_updates
+      FROM (
+        SELECT ru.id, ru.message, ru.created_at
+        FROM public.repair_updates ru
+        WHERE ru.repair_id = r.id
+        ORDER BY ru.created_at DESC, ru.id DESC
+        LIMIT 25
+      ) recent
+    ) recent_updates ON (r.id IS NOT NULL)
+    WHERE rq.reference_code = v_normalized_code
+    LIMIT 1;
     RETURN;
   END IF;
 
@@ -118,4 +131,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.lookup_public_repair(TEXT) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.lookup_public_repair(TEXT)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.lookup_public_repair(TEXT)
+  TO service_role;
