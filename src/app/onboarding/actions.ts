@@ -188,26 +188,24 @@ export async function acceptStaffInviteAction(
 ): Promise<OnboardingActionState> {
   const supabase = await createClient();
   const token = formData.get("token")?.toString()?.trim() ?? "";
-  const fullName =
-    formData.get("fullName")?.toString()?.trim() ||
-    formData.get("displayName")?.toString()?.trim() ||
-    "";
-  const contactPhone =
-    formData.get("contactPhone")?.toString()?.trim() || undefined;
+  const fullName = formData.get("fullName")?.toString()?.trim() ?? "";
+  const contactPhone = formData.get("contactPhone")?.toString()?.trim();
 
   const parsed = acceptStaffInvitationSchema.safeParse({
     token,
     displayName: fullName,
-    contactPhone,
+    contactPhone: contactPhone || undefined,
   });
 
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
     parsed.error.issues.forEach((issue) => {
-      const field = issue.path[0]?.toString();
-      if (field) {
-        fieldErrors[field === "displayName" ? "fullName" : field] =
-          issue.message;
+      const key =
+        issue.path[0] === "displayName"
+          ? "fullName"
+          : issue.path[0]?.toString();
+      if (key) {
+        fieldErrors[key] = issue.message;
       }
     });
     return {
@@ -225,14 +223,14 @@ export async function acceptStaffInviteAction(
       },
       supabase,
     );
-
     const cookieStore = await cookies();
     cookieStore.delete("tracknologia_staff_invite");
-    cookieStore.delete("pending_invite_token");
   } catch (err: unknown) {
     return {
       error:
-        err instanceof Error ? err.message : "Failed to accept staff invite",
+        err instanceof Error
+          ? err.message
+          : "Invalid, expired, or already accepted invitation",
     };
   }
 
