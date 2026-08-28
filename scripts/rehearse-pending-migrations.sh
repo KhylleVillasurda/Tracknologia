@@ -30,6 +30,7 @@
 # Usage:  pnpm rehearse:migrations [--base <git-ref>]
 # Env:    REHEARSAL_BASE_REF   base git ref (default: staging via a remote)
 #         REHEARSAL_PORT_OFFSET offset added to every lab port (default 4000)
+#         REHEARSAL_TMPDIR       parent dir for the scratch lab (default: $TMPDIR or /tmp)
 #
 set -euo pipefail
 
@@ -106,7 +107,9 @@ log "shared migrations unchanged relative to base (forward-only verified)"
 log "pending migrations to apply on upgrade:"
 printf '  %s\n' $pending
 
-lab_root="$(mktemp -d /tmp/opencode/tracknologia-rehearsal-XXXXXX)"
+lab_base_dir="${REHEARSAL_TMPDIR:-${TMPDIR:-/tmp}}"
+mkdir -p "$lab_base_dir"
+lab_root="$(mktemp -d "$lab_base_dir/tracknologia-rehearsal-XXXXXX")"
 mkdir -p "$lab_root/supabase/migrations"
 touch "$lab_root/supabase/seed.sql"
 
