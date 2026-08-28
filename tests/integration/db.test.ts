@@ -107,6 +107,7 @@ async function createInvitationAs(
   tokenHash: string;
   createdAt: string;
   expiresAt: string;
+  reused: boolean;
 }> {
   const tokenHash = hashInvitationToken(`inv_${randomUUID()}_${randomUUID()}`);
   const { data, error } = await client.rpc("create_staff_invitation", {
@@ -129,6 +130,7 @@ async function createInvitationAs(
     tokenHash,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
+    reused: row.reused === true,
   };
 }
 
@@ -1245,6 +1247,207 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     }
   });
 
+  it("reuses the existing active pending invitation for the same Shop and email", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(auth.client);
+      createdProviderIds.push(provider.providerId);
+
+      const email = uniqueEmail("reuse");
+      const first = await createInvitationAs(auth.client, email);
+      const second = await createInvitationAs(auth.client, email);
+
+      expect(first.reused).toBe(false);
+      expect(second.reused).toBe(true);
+      expect(second.invitationId).toBe(first.invitationId);
+
+      const rows = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id, token_hash, accepted_at, revoked_at, expires_at")
+          .eq("provider_id", provider.providerId)
+          .eq("email", email),
+        "read invitation rows under reuse policy",
+      );
+      expect(rows.data).toHaveLength(1);
+      expect(rows.data?.[0]?.token_hash).toBe(first.tokenHash);
+
+      const details = assertSupabaseSuccess(
+        await anonClient.rpc("get_invitation_details", {
+          p_token_hash: first.tokenHash,
+        }),
+        "read original invitation projection after reuse",
+      );
+      const detail = Array.isArray(details.data)
+        ? details.data[0]
+        : details.data;
+      expect(detail).toMatchObject({ email });
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("parallel duplicate invites for the same Shop and email yield exactly one active invitation", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(auth.client);
+      createdProviderIds.push(provider.providerId);
+
+      const email = uniqueEmail("parallel");
+      const [first, second] = await Promise.all([
+        createInvitationAs(auth.client, email),
+        createInvitationAs(auth.client, email),
+      ]);
+
+      expect(first.reused).not.toBe(second.reused);
+
+      const active = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id")
+          .eq("provider_id", provider.providerId)
+          .eq("email", email)
+          .is("accepted_at", null)
+          .is("revoked_at", null)
+          .gt("expires_at", new Date().toISOString()),
+        "read active invitation rows after parallel create",
+      );
+      expect(active.data).toHaveLength(1);
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id],
+      });
+    }
+  });
+
+  it("keeps same-email invitations independent across different Shops", async () => {
+    const ownerA = await createTestUser(
+      adminClient,
+      uniqueEmail("owner-a"),
+      password,
+    );
+    const ownerB = await createTestUser(
+      adminClient,
+      uniqueEmail("owner-b"),
+      password,
+    );
+    const authA = await signInTestUser(ownerA.email, password);
+    const authB = await signInTestUser(ownerB.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const providerA = await createProviderAs(authA.client);
+      const providerB = await createProviderAs(authB.client);
+      createdProviderIds.push(providerA.providerId, providerB.providerId);
+
+      const email = uniqueEmail("cross-shop");
+      const inviteA = await createInvitationAs(authA.client, email);
+      const inviteB = await createInvitationAs(authB.client, email);
+
+      expect(inviteA.reused).toBe(false);
+      expect(inviteB.reused).toBe(false);
+
+      for (const providerId of [providerA.providerId, providerB.providerId]) {
+        const active = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_invitations")
+            .select("id")
+            .eq("provider_id", providerId)
+            .eq("email", email)
+            .is("accepted_at", null)
+            .is("revoked_at", null)
+            .gt("expires_at", new Date().toISOString()),
+          "read active invitation per Shop",
+        );
+        expect(active.data).toHaveLength(1);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [ownerA.user.id, ownerB.user.id],
+      });
+    }
+  });
+
+  it("allows a fresh invitation once a previous one is expired, revoked, or accepted", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const staff = await createTestUser(
+      adminClient,
+      uniqueEmail("staff"),
+      password,
+    );
+    const auth = await signInTestUser(owner.email, password);
+    const staffAuth = await signInTestUser(staff.email, password);
+    const createdProviderIds: string[] = [];
+    const createdUserIds = [owner.user.id, staff.user.id];
+
+    try {
+      const provider = await createProviderAs(auth.client);
+      createdProviderIds.push(provider.providerId);
+
+      const expired = await createInvitationAs(auth.client);
+      assertSupabaseMutation(
+        await adminClient
+          .from("provider_invitations")
+          .update({ expires_at: new Date(Date.now() - 60_000).toISOString() })
+          .eq("id", expired.invitationId)
+          .select("id"),
+        "expire invitation fixture",
+      );
+      const afterExpired = await createInvitationAs(auth.client, expired.email);
+      expect(afterExpired.reused).toBe(false);
+      expect(afterExpired.invitationId).not.toBe(expired.invitationId);
+
+      const revoked = await createInvitationAs(auth.client);
+      assertSupabaseSuccess(
+        await auth.client.rpc("revoke_staff_invitation", {
+          p_invitation_id: revoked.invitationId,
+        }),
+        "revoke invitation fixture",
+      );
+      const afterRevoked = await createInvitationAs(auth.client, revoked.email);
+      expect(afterRevoked.reused).toBe(false);
+      expect(afterRevoked.invitationId).not.toBe(revoked.invitationId);
+
+      const accepted = await createInvitationAs(auth.client, staff.email);
+      const accept = await acceptInvitationAs(
+        staffAuth.client,
+        accepted.tokenHash,
+      );
+      expect(accept.error).toBeNull();
+      const afterAccepted = await createInvitationAs(auth.client, staff.email);
+      expect(afterAccepted.reused).toBe(false);
+      expect(afterAccepted.invitationId).not.toBe(accepted.invitationId);
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: createdUserIds,
+      });
+    }
+  });
+
   it("invitation acceptance rejects revoked, expired, consumed, wrong-email, and existing-member cases without partial state", async () => {
     const owner = await createTestUser(
       adminClient,
@@ -1324,6 +1527,13 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         wrongEmail.tokenHash,
       );
       expect(wrongEmailAccept.error).not.toBeNull();
+
+      assertSupabaseSuccess(
+        await ownerAuth.client.rpc("revoke_staff_invitation", {
+          p_invitation_id: wrongEmail.invitationId,
+        }),
+        "revoke wrong-email invitation fixture",
+      );
 
       const existing = await createInvitationAs(
         ownerAuth.client,
