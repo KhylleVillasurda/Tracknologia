@@ -2158,6 +2158,105 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     }
   });
 
+  it("Owner onboarding racing a Staff-invite create leaves exactly one membership and no unusable active invitation", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const ownerAuth = await signInTestUser(owner.email, password);
+    const createdProviderIds: string[] = [];
+    const createdUserIds = [owner.user.id];
+
+    try {
+      const provider = await createProviderAs(ownerAuth.client, {
+        displayName: uniqueName("Onboard Shop"),
+      });
+      createdProviderIds.push(provider.providerId);
+
+      // Each iteration starts from an eligible recipient (no membership): a
+      // Staff-invite create races the recipient's own account registration +
+      // Provider onboarding for that same email (the "Auth User appears
+      // mid-create" scenario). Whichever order commits inside the shared
+      // recipient-email lock, the invariant must hold: exactly one membership
+      // AND zero active pending invitations left for the recipient email.
+      const iterations = 6;
+      for (let i = 0; i < iterations; i += 1) {
+        const recipientEmail = uniqueEmail(`onboard-race-r${i}`);
+
+        const [createResult, registered] = await Promise.all([
+          ownerAuth.client.rpc("create_staff_invitation", {
+            p_email: recipientEmail,
+            p_token_hash: hashInvitationToken(
+              `inv_${randomUUID()}_${randomUUID()}`,
+            ),
+          }),
+          (async () => {
+            const account = await createTestUser(
+              adminClient,
+              recipientEmail,
+              password,
+            );
+            createdUserIds.push(account.user.id);
+            const signedIn = await signInTestUser(recipientEmail, password);
+            const onboarded = await createProviderAs(signedIn.client, {
+              displayName: uniqueName("Onboard"),
+            });
+            createdProviderIds.push(onboarded.providerId);
+            return account;
+          })(),
+        ]);
+
+        // create either minted a fresh invitation before onboarding committed
+        // (onboarding's settlement must then supersede it) or was refused on
+        // its eligibility recheck because onboarding had already established a
+        // membership. Its own error is acceptable; the resulting state is what
+        // has to be proven.
+        const createRow = Array.isArray(createResult.data)
+          ? createResult.data[0]
+          : createResult.data;
+        if (createResult.error === null && createRow) {
+          const outcome = assertSupabaseSuccess(
+            await adminClient
+              .from("provider_invitations")
+              .select("accepted_at, revoked_at")
+              .eq("id", createRow.invitation_id)
+              .single(),
+            "read onboarding-race invitation state",
+          );
+          expect(outcome.data?.accepted_at).toBeNull();
+          expect(outcome.data?.revoked_at).not.toBeNull();
+        }
+
+        const memberships = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_memberships")
+            .select("id")
+            .eq("user_id", registered.user.id),
+          "read onboarding-race membership count",
+        );
+        expect(memberships.data).toHaveLength(1);
+
+        const pending = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_invitations")
+            .select("id")
+            .eq("email", recipientEmail)
+            .is("accepted_at", null)
+            .is("revoked_at", null)
+            .gt("expires_at", new Date().toISOString()),
+          "read active pending invitations after onboarding-race iteration",
+        );
+        expect(pending.data).toHaveLength(0);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: createdUserIds,
+      });
+    }
+  });
+
   it("two concurrent Staff invite accepts for one User create exactly one membership and consume one invitation", async () => {
     const ownerA = await createTestUser(
       adminClient,
