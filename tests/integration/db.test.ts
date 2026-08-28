@@ -1437,9 +1437,37 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         accepted.tokenHash,
       );
       expect(accept.error).toBeNull();
-      const afterAccepted = await createInvitationAs(auth.client, staff.email);
-      expect(afterAccepted.reused).toBe(false);
-      expect(afterAccepted.invitationId).not.toBe(accepted.invitationId);
+
+      // An active Staff member is not eligible for a fresh invitation: the
+      // create call must refuse instead of minting an unusable invitation.
+      const memberReinvite = await auth.client.rpc("create_staff_invitation", {
+        p_email: staff.email,
+        p_token_hash: hashInvitationToken(
+          `inv_${randomUUID()}_${randomUUID()}`,
+        ),
+      });
+      expect(memberReinvite.error).not.toBeNull();
+      expect(memberReinvite.error?.message).toMatch(
+        /active provider membership/,
+      );
+
+      // After legitimate offboarding the same email becomes eligible again and
+      // a new (non-reused) invitation can be created.
+      const acceptedRow = Array.isArray(accept.data)
+        ? accept.data[0]
+        : accept.data;
+      assertSupabaseSuccess(
+        await auth.client.rpc("remove_staff_member", {
+          p_membership_id: acceptedRow.membership_id,
+        }),
+        "offboard staff after acceptance",
+      );
+      const afterOffboarding = await createInvitationAs(
+        auth.client,
+        staff.email,
+      );
+      expect(afterOffboarding.reused).toBe(false);
+      expect(afterOffboarding.invitationId).not.toBe(accepted.invitationId);
     } finally {
       await cleanupFixture(adminClient, {
         providerIds: createdProviderIds,
@@ -1535,15 +1563,54 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         "revoke wrong-email invitation fixture",
       );
 
-      const existing = await createInvitationAs(
-        ownerAuth.client,
-        existingMember.email,
+      // Creating an invitation for an email that already belongs to an active
+      // member is refused outright (the invite would be unusable), and a
+      // legacy pending row for such a recipient is still rejected on accept.
+      const memberCreate = await ownerAuth.client.rpc(
+        "create_staff_invitation",
+        {
+          p_email: existingMember.email,
+          p_token_hash: hashInvitationToken(
+            `inv_${randomUUID()}_${randomUUID()}`,
+          ),
+        },
       );
+      expect(memberCreate.error).not.toBeNull();
+      expect(memberCreate.error?.message).toMatch(/active provider membership/);
+
+      const existingInviteToken = hashInvitationToken(
+        `inv_${randomUUID()}_${randomUUID()}`,
+      );
+      assertSupabaseMutation(
+        await adminClient
+          .from("provider_invitations")
+          .insert({
+            provider_id: provider.providerId,
+            email: existingMember.email,
+            role: "STAFF",
+            token_hash: existingInviteToken,
+            invited_by_user_id: owner.user.id,
+          })
+          .select("id"),
+        "seed legacy pending invitation for existing member",
+      );
+      const existingRow = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id")
+          .eq("token_hash", existingInviteToken)
+          .single(),
+        "read seeded existing-member invitation",
+      );
+      const existing = { invitationId: existingRow.data!.id };
       const existingAccept = await acceptInvitationAs(
         existingAuth.client,
-        existing.tokenHash,
+        existingInviteToken,
       );
       expect(existingAccept.error).not.toBeNull();
+      expect(existingAccept.error?.message).toMatch(
+        /active provider membership/,
+      );
 
       const consumed = await createInvitationAs(ownerAuth.client, staff.email);
       const firstAccept = await acceptInvitationAs(
@@ -1613,6 +1680,216 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
       await cleanupFixture(adminClient, {
         providerIds: createdProviderIds,
         userIds: createdUserIds,
+      });
+    }
+  });
+
+  it("accepting one invitation supersedes sibling active pending invitations for the same Shop and email", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const staff = await createTestUser(
+      adminClient,
+      uniqueEmail("staff"),
+      password,
+    );
+    const ownerAuth = await signInTestUser(owner.email, password);
+    const staffAuth = await signInTestUser(staff.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(ownerAuth.client);
+      createdProviderIds.push(provider.providerId);
+
+      // Simulate legacy duplicate state: two active pending invitations for
+      // the same Shop + email (direct inserts bypass the create RPC).
+      const firstToken = hashInvitationToken(
+        `inv_${randomUUID()}_${randomUUID()}`,
+      );
+      const siblingToken = hashInvitationToken(
+        `inv_${randomUUID()}_${randomUUID()}`,
+      );
+      const seeds = [
+        {
+          id: randomUUID(),
+          provider_id: provider.providerId,
+          email: staff.email,
+          role: "STAFF",
+          token_hash: firstToken,
+          invited_by_user_id: owner.user.id,
+        },
+        {
+          id: randomUUID(),
+          provider_id: provider.providerId,
+          email: staff.email,
+          role: "STAFF",
+          token_hash: siblingToken,
+          invited_by_user_id: owner.user.id,
+        },
+      ];
+      assertSupabaseMutation(
+        await adminClient
+          .from("provider_invitations")
+          .insert(seeds)
+          .select("id"),
+        "seed sibling pending invitations",
+      );
+
+      assertSupabaseSuccess(
+        await acceptInvitationAs(staffAuth.client, firstToken),
+        "staff accepts first sibling invitation",
+      );
+
+      const rows = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id, accepted_at, revoked_at")
+          .in(
+            "id",
+            seeds.map((seed) => seed.id),
+          ),
+        "read invitation states after settlement",
+      );
+      const byId = new Map(rows.data?.map((row) => [row.id, row]));
+      expect(byId.get(seeds[0].id)?.accepted_at).not.toBeNull();
+      expect(byId.get(seeds[0].id)?.revoked_at).toBeNull();
+      expect(byId.get(seeds[1].id)?.accepted_at).toBeNull();
+      expect(byId.get(seeds[1].id)?.revoked_at).not.toBeNull();
+
+      // The superseded sibling link no longer resolves.
+      const superseded = await anonClient.rpc("get_invitation_details", {
+        p_token_hash: siblingToken,
+      });
+      expect(superseded.error ?? null).toBeNull();
+      expect(Array.isArray(superseded.data) ? superseded.data.length : 0).toBe(
+        0,
+      );
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id, staff.user.id],
+      });
+    }
+  });
+
+  it("reconciles legacy duplicate active invitations to a single valid link per Shop and email", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const controlOwner = await createTestUser(
+      adminClient,
+      uniqueEmail("control-owner"),
+      password,
+    );
+    const ownerAuth = await signInTestUser(owner.email, password);
+    const controlAuth = await signInTestUser(controlOwner.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(ownerAuth.client, {
+        displayName: uniqueName("Legacy Shop"),
+      });
+      const otherProvider = await createProviderAs(controlAuth.client, {
+        displayName: uniqueName("Control Shop"),
+      });
+      createdProviderIds.push(provider.providerId, otherProvider.providerId);
+
+      const groupEmail = uniqueEmail("legacy-dup");
+      const controlEmail = uniqueEmail("legacy-control");
+
+      // Legacy duplicates: three simultaneously valid invitations for one
+      // Shop + email (only the earliest must survive), plus a lone control
+      // invitation on a different Shop that must be left untouched. created_at
+      // is staged explicitly so the kept (earliest) row is deterministic.
+      const earliest = new Date(Date.now() - 120_000).toISOString();
+      const middle = new Date(Date.now() - 60_000).toISOString();
+      const latest = new Date().toISOString();
+      const seeds = [
+        ...Array.from({ length: 3 }, (_, i) => ({
+          id: randomUUID(),
+          provider_id: provider.providerId,
+          email: groupEmail,
+          role: "STAFF",
+          token_hash: hashInvitationToken(
+            `inv_${randomUUID()}_${randomUUID()}`,
+          ),
+          invited_by_user_id: owner.user.id,
+          created_at: i === 0 ? earliest : i === 1 ? middle : latest,
+        })),
+        {
+          id: randomUUID(),
+          provider_id: otherProvider.providerId,
+          email: controlEmail,
+          role: "STAFF",
+          token_hash: hashInvitationToken(
+            `inv_${randomUUID()}_${randomUUID()}`,
+          ),
+          invited_by_user_id: owner.user.id,
+          created_at: middle,
+        },
+      ];
+      assertSupabaseMutation(
+        await adminClient
+          .from("provider_invitations")
+          .insert(seeds)
+          .select("id"),
+        "seed legacy invitation duplicates",
+      );
+
+      const keptToken = seeds[0].token_hash;
+      const supersededTokens = [seeds[1].token_hash, seeds[2].token_hash];
+
+      const reconcile = assertSupabaseSuccess(
+        await adminClient.rpc("reconcile_staff_invitation_duplicates"),
+        "run legacy duplicate reconciliation",
+      );
+      expect(reconcile.data).toBe(2);
+
+      const rows = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id, token_hash, accepted_at, revoked_at")
+          .in(
+            "id",
+            seeds.map((seed) => seed.id),
+          ),
+        "read invitation states after reconciliation",
+      );
+      const active = rows.data?.filter(
+        (row) => row.accepted_at === null && row.revoked_at === null,
+      );
+      expect(active).toHaveLength(2);
+      expect(active?.map((row) => row.token_hash)).toEqual(
+        expect.arrayContaining([keptToken, seeds[3].token_hash]),
+      );
+
+      // The kept (earliest) link still resolves after reconciliation.
+      const kept = assertSupabaseSuccess(
+        await anonClient.rpc("get_invitation_details", {
+          p_token_hash: keptToken,
+        }),
+        "resolve the kept invitation link",
+      );
+      expect(Array.isArray(kept.data) ? kept.data.length : 0).toBeGreaterThan(
+        0,
+      );
+
+      // Superseded duplicates no longer resolve.
+      for (const token of supersededTokens) {
+        const details = await anonClient.rpc("get_invitation_details", {
+          p_token_hash: token,
+        });
+        expect(details.error ?? null).toBeNull();
+        expect(Array.isArray(details.data) ? details.data.length : 0).toBe(0);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id, controlOwner.user.id],
       });
     }
   });
