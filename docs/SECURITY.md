@@ -102,6 +102,17 @@ double-clicks cannot mint multiple simultaneously valid links. Reuse never
 regenerates or exposes a raw credential; replacing an invitation requires an
 OWNER to revoke it and invite again.
 
+`create_staff_invitation` also enforces recipient eligibility: an email whose
+account already holds an active Provider membership is refused (that link could
+never be accepted), and the refusal is rechecked under the same per-User lock
+used by acceptance so a create/accept race never leaves an unusable active
+invitation. Legacy duplicate active invitations from before this policy are
+reconciled to the earliest link per Shop + email by the migration (and by the
+service-role-only `reconcile_staff_invitation_duplicates()` maintenance RPC);
+superseded links stop resolving and raw credentials are never reconstructed.
+Accepting an invitation supersedes any remaining active pending sibling link
+for the same Shop + email.
+
 ## Server Actions and Route Handlers
 
 Treat every mutation interface as externally callable.

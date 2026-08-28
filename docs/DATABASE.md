@@ -112,6 +112,22 @@ Governs secure, Owner-authorized Staff onboarding (LD-01).
   existing active pending invite **reuses** it (`reused = true`, no second row,
   digest untouched) instead of inserting another. Expired, revoked, or accepted
   invitations do not count as active and permit a fresh invitation.
+- **Recipient eligibility**: `create_staff_invitation` refuses to create or
+  reuse an invitation for an email whose account already holds an active
+  `provider_memberships` row (the resulting link could never be accepted).
+  Re-inviting becomes valid again after Owner offboarding removes the
+  membership. The check runs under the same per-User advisory lock that
+  `accept_staff_invitation` uses to establish membership, so a concurrent
+  create and accept serialize and can never leave an unusable active
+  invitation behind.
+- On acceptance, `accept_staff_invitation` supersedes any remaining active
+  pending invitation for the same Provider + email (`revoked_at` set), so a
+  Shop never retains a second unusable link after a member joins.
+- `reconcile_staff_invitation_duplicates()` (service-role/admin only) is the
+  one-time and on-demand fix for legacy duplicate active invitations: it keeps
+  only the earliest un-accepted, un-revoked invitation per
+  `(provider_id, lower(email))` and revokes the rest. It runs automatically as
+  part of the retry-policy migration; raw credentials are never reconstructed.
 
 ### 5. `public_provider_profiles` (View)
 
@@ -262,11 +278,15 @@ npx supabase db push
   - `create_provider_with_owner(...)`: Transactionally provisions new Provider, initial business profile, person profile, and links caller as explicit `OWNER`.
   - `create_provider_with_owner_and_modes(...)`: Composes the accepted creation procedure with description/request configuration and Service Mode replacement in the same transaction.
   - `set_provider_service_modes(service_modes)`: Owner-only atomic replacement of repeating Service Mode configuration, serialized with a Provider-row lock.
-  - `accept_staff_invitation(token_hash, display_name, contact_phone)`: Transactionally locks invitation, verifies SHOP provider and single active membership invariant, creates person profile and `STAFF` membership, and marks token accepted.
+  - `accept_staff_invitation(token_hash, display_name, contact_phone)`: Transactionally locks invitation, verifies SHOP provider and single active membership invariant, creates person profile and `STAFF` membership, marks token accepted, and supersedes sibling active pending invitations for the same Provider + email.
   - `create_staff_invitation(email, token_hash)`: OWNER-only, SHOP-only creation
-    that enforces the one-active-pending-invitation invariant; returns the
-    existing active pending invite (`reused = true`, no insert) rather than
+    that enforces the one-active-pending-invitation invariant and the
+    recipient-eligibility rule (an active member's email is refused); returns
+    the existing active pending invite (`reused = true`, no insert) rather than
     creating a duplicate.
+  - `reconcile_staff_invitation_duplicates()`: service-role maintenance RPC
+    that deterministically reduces legacy duplicate active invitations to one
+    (earliest) per Provider + email (see §4 `provider_invitations`).
   - `remove_staff_member(membership_id)`: OWNER-only Staff offboarding that
     locks the target membership, removes exactly one same-Provider `STAFF`
     row, refuses OWNER targets, and returns a neutral `false` for

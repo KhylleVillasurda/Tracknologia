@@ -97,6 +97,23 @@ Owner-authorized, expiring, single-use invitations for Shop Staff onboarding:
 - `accepted_by_user_id`
 - `revoked_at`
 
+Invitation policy (issue #43):
+
+- **Active pending** invitation = `accepted_at IS NULL` **and** `revoked_at IS
+NULL` and `expires_at > now()`.
+- **Reuse**: an active pending invitation per `(provider_id, email)` is
+  reused, not duplicated. Retries and double-clicks return the existing
+  invitation (`reused = true`) with its original credential; no new link or
+  email is emitted.
+- **Recipient eligibility**: an invitation cannot be created (or reused) for
+  an email whose account already holds an active `provider_memberships`
+  membership — such a link could never be accepted. Re-inviting a former Staff
+  member becomes valid again after the Owner offboards them
+  (`remove_staff_member`), which removes the membership.
+- **Settlement on acceptance**: accepting an invitation supersedes any other
+  active pending invitation for the same Provider + email, so a Shop never
+  retains a second unusable link once the recipient has joined.
+
 ### `provider_service_modes`
 
 Repeating Provider-owned operating configuration:
@@ -215,6 +232,17 @@ browser-supplied `providerId`, role, or user ID for these mutations.
 16. Only an `OWNER` can remove a same-Provider `STAFF` membership; OWNER
     targets and cross-Provider targets are never removable through Staff
     offboarding.
+17. At most one active pending Staff invitation exists per `(provider_id,
+normalized email)`: `create_staff_invitation` reuses an existing active
+    pending invitation (no duplicate credential, no regenerated token) rather
+    than minting a second simultaneously valid link. A recipient who already
+    holds an active membership is ineligible to be invited; the eligibility
+    check serializes with acceptance under the same per-User lock. Accepting an
+    invitation supersedes any remaining active pending sibling for the same
+    Shop + email. Legacy duplicates from before this policy are reconciled to
+    the earliest link per Shop + email by the migration (and by the
+    service-role-only `reconcile_staff_invitation_duplicates()` RPC);
+    superseded links stop resolving without ever exposing a raw credential.
 
 ## Testing expectations
 
@@ -225,6 +253,12 @@ Test:
 - valid Staff invitation creates exactly one `STAFF` membership atomically;
 - expired, revoked, or consumed invitations are rejected;
 - Staff cannot join a Provider without a valid invitation;
+- retries and concurrent duplicate invites for the same Shop + email produce
+  at most one active pending invitation (reuse policy);
+- an active member's email cannot be re-invited, but is eligible again after
+  offboarding;
+- accepting an invitation supersedes sibling active pending invitations;
+- legacy duplicate active invitations reconcile to a single valid link;
 - OWNER removes a same-Provider STAFF and the removed member loses access;
 - STAFF cannot remove members; OWNER rows cannot be removed through offboarding;
 - cross-Provider removal attempts are neutral and non-destructive;
