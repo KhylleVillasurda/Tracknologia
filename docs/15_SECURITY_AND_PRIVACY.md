@@ -61,6 +61,9 @@ Every Staff invitation is:
 - created only by an authorized Provider `OWNER` of a `SHOP` provider;
 - bound to exactly one Provider;
 - single-use;
+- unique per Provider at a time: at most one **active pending** invitation per
+  Provider + normalized email; retrying an already-pending email reuses the
+  existing invitation (`reused = true`) instead of minting a new credential;
 - expiring (7-day default);
 - revocable by an OWNER;
 - stored by one-way cryptographic digest (`token_hash = sha256(raw_token)`), never raw token;

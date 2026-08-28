@@ -95,6 +95,13 @@ Possessing a Staff invitation token permits a restricted lookup of the invited
 email and public Shop identity. The lookup does not return the Provider's
 private contact email or phone.
 
+At most one active pending Staff invitation exists per Shop and normalized
+recipient email: `create_staff_invitation` reuses an existing active pending
+invitation instead of issuing a duplicate credential, so retries and
+double-clicks cannot mint multiple simultaneously valid links. Reuse never
+regenerates or exposes a raw credential; replacing an invitation requires an
+OWNER to revoke it and invite again.
+
 ## Server Actions and Route Handlers
 
 Treat every mutation interface as externally callable.

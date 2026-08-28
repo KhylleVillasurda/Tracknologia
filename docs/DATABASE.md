@@ -106,6 +106,12 @@ Governs secure, Owner-authorized Staff onboarding (LD-01).
 - `token_hash` (text, UNIQUE) — stores one-way SHA-256 cryptographic digest of raw token.
 - `invited_by_user_id` (uuid, FK $\to$ `auth.users.id`)
 - `created_at`, `expires_at` (7 days default), `accepted_at`, `accepted_by_user_id`, `revoked_at`
+- At most one **active pending** invitation per `(provider_id, normalized email)`:
+  `create_staff_invitation` serializes competing creates with a Provider+email
+  advisory lock, rechecks `accepted_at` / `revoked_at` / `expires_at`, and on an
+  existing active pending invite **reuses** it (`reused = true`, no second row,
+  digest untouched) instead of inserting another. Expired, revoked, or accepted
+  invitations do not count as active and permit a fresh invitation.
 
 ### 5. `public_provider_profiles` (View)
 
@@ -257,6 +263,10 @@ npx supabase db push
   - `create_provider_with_owner_and_modes(...)`: Composes the accepted creation procedure with description/request configuration and Service Mode replacement in the same transaction.
   - `set_provider_service_modes(service_modes)`: Owner-only atomic replacement of repeating Service Mode configuration, serialized with a Provider-row lock.
   - `accept_staff_invitation(token_hash, display_name, contact_phone)`: Transactionally locks invitation, verifies SHOP provider and single active membership invariant, creates person profile and `STAFF` membership, and marks token accepted.
+  - `create_staff_invitation(email, token_hash)`: OWNER-only, SHOP-only creation
+    that enforces the one-active-pending-invitation invariant; returns the
+    existing active pending invite (`reused = true`, no insert) rather than
+    creating a duplicate.
   - `remove_staff_member(membership_id)`: OWNER-only Staff offboarding that
     locks the target membership, removes exactly one same-Provider `STAFF`
     row, refuses OWNER targets, and returns a neutral `false` for
