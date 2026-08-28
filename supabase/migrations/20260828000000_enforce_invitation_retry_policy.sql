@@ -37,6 +37,7 @@ DECLARE
   v_provider_id UUID;
   v_provider_type public.provider_type;
   v_clean_email TEXT;
+  v_invitee_user_id UUID;
 BEGIN
   v_user_id := auth.uid();
 
@@ -76,6 +77,35 @@ BEGIN
   IF v_provider_type <> 'SHOP' THEN
     RAISE EXCEPTION
       'Staff invitations are only valid for Repair Shops';
+  END IF;
+
+  -- Recipient eligibility: a person who already holds an active Provider
+  -- membership must not receive a new (or reused) invitation link. That
+  -- invite would be unusable because accepting it is impossible while any
+  -- active membership exists. Re-inviting becomes valid again only after the
+  -- membership is removed through Owner offboarding.
+  --
+  -- accept_staff_invitation establishes the membership while holding the same
+  -- per-User advisory lock, so serializing here closes the create-vs-accept
+  -- race: whichever operation runs second observes the other's committed
+  -- outcome (a fresh invitation can never remain simultaneously with an active
+  -- membership for the same recipient).
+  SELECT u.id
+  INTO v_invitee_user_id
+  FROM auth.users u
+  WHERE lower(u.email) = v_clean_email
+  LIMIT 1;
+
+  IF v_invitee_user_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtext(v_invitee_user_id::text));
+
+    IF EXISTS (
+      SELECT 1
+      FROM public.provider_memberships pm
+      WHERE pm.user_id = v_invitee_user_id
+    ) THEN
+      RAISE EXCEPTION 'User already has an active provider membership';
+    END IF;
   END IF;
 
   -- Serialize competing invitation creations for the same Provider + normalized
@@ -147,3 +177,54 @@ FROM PUBLIC;
 GRANT EXECUTE
 ON FUNCTION public.create_staff_invitation(TEXT, TEXT)
 TO authenticated;
+
+-- ===========================================================================
+-- Legacy duplicate reconciliation
+-- Before this policy, repeated or concurrent invitations could leave multiple
+-- simultaneously valid invitations for the same Shop + normalized email. That
+-- state is reconciled deterministically here: for every (provider_id,
+-- lower(email)) keep only the EARLIEST un-accepted, un-revoked invitation and
+-- supersede (revoke) every other un-accepted, un-revoked invitation for that
+-- pair. Raw credentials are never reconstructed; superseded links simply stop
+-- resolving, so the kept (earliest) link remains the valid one.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.reconcile_staff_invitation_duplicates()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_revoked INTEGER;
+BEGIN
+  UPDATE public.provider_invitations AS pi
+  SET revoked_at = now()
+  WHERE pi.accepted_at IS NULL
+    AND pi.revoked_at IS NULL
+    AND (pi.provider_id, lower(pi.email), pi.created_at, pi.id) NOT IN (
+      SELECT DISTINCT ON (keep.provider_id, lower(keep.email))
+        keep.provider_id,
+        lower(keep.email),
+        keep.created_at,
+        keep.id
+      FROM public.provider_invitations AS keep
+      WHERE keep.accepted_at IS NULL
+        AND keep.revoked_at IS NULL
+      ORDER BY keep.provider_id, lower(keep.email), keep.created_at, keep.id
+    );
+
+  GET DIAGNOSTICS v_revoked = ROW_COUNT;
+  RETURN v_revoked;
+END;
+$$;
+
+REVOKE ALL
+ON FUNCTION public.reconcile_staff_invitation_duplicates()
+FROM PUBLIC;
+
+GRANT EXECUTE
+ON FUNCTION public.reconcile_staff_invitation_duplicates()
+TO service_role;
+
+-- Apply reconciliation to any pre-existing duplicates at migration time.
+SELECT public.reconcile_staff_invitation_duplicates();

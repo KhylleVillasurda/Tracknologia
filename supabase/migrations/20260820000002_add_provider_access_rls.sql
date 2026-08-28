@@ -523,6 +523,20 @@ BEGIN
       accepted_by_user_id = v_user_id
   WHERE id = v_invitation_id;
 
+  -- Invariant: now that the recipient holds an active membership, no other
+  -- active pending invitation may remain for the same Provider + email. Any
+  -- such sibling invitation would be unusable; supersede it so the link stops
+  -- resolving. (The membership was just established under the per-User
+  -- advisory lock, so a concurrent create that raced the accept has already
+  -- committed or will observe the membership on recheck.)
+  UPDATE public.provider_invitations AS sibling
+  SET revoked_at = now()
+  WHERE sibling.provider_id = v_provider_id
+    AND lower(sibling.email) = lower(trim(v_invite_email))
+    AND sibling.id <> v_invitation_id
+    AND sibling.accepted_at IS NULL
+    AND sibling.revoked_at IS NULL;
+
   RETURN QUERY SELECT v_provider_id, v_membership_id, v_invite_role;
 END;
 $$;
