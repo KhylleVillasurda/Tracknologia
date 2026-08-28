@@ -9,6 +9,9 @@
 --                                                   shared recipient-email advisory lock)
 --   - accept_staff_invitation                      (acceptance settlement superseding sibling
 --                                                   invitations under the same email lock)
+--   - create_provider_with_owner                   (Owner onboarding joins the shared
+--                                                   recipient-email lock boundary and settles
+--                                                   unusable active Staff invitations)
 --   - reconcile_staff_invitation_duplicates        (revoke only currently-valid superseded
 --                                                   duplicates; expired rows stay untouched)
 -- Because the acceptance changes ship in this genuine (pending) forward migration, the
@@ -357,6 +360,200 @@ FROM PUBLIC;
 
 GRANT EXECUTE
 ON FUNCTION public.accept_staff_invitation(TEXT, TEXT, TEXT)
+TO authenticated;
+
+-- ===========================================================================
+-- Owner onboarding serialization
+-- The shared baseline create_provider_with_owner is redefined here (forward-only)
+-- so a release-like database that has already recorded the shared history
+-- receives identical behavior by applying only this pending migration. Owner
+-- onboarding is the third membership-establishing path (alongside
+-- create_staff_invitation and accept_staff_invitation), so it must join the
+-- same recipient-email advisory lock boundary: it takes the normalized owner
+-- email lock BEFORE the per-User lock (consistent ordering, so no lock cycle
+-- exists), then after establishing the OWNER membership it settles any active
+-- pending Staff invitations for that recipient email. An invitation a create
+-- won the race on would otherwise be unusable, because accepting it is
+-- impossible while any active membership exists.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.create_provider_with_owner(
+  p_display_name TEXT,
+  p_provider_type public.provider_type,
+  p_owner_display_name TEXT DEFAULT NULL,
+  p_owner_contact_phone TEXT DEFAULT NULL,
+  p_contact_email TEXT DEFAULT NULL,
+  p_contact_phone TEXT DEFAULT NULL,
+  p_public_address TEXT DEFAULT NULL,
+  p_service_area TEXT DEFAULT NULL,
+  p_supported_devices TEXT[] DEFAULT '{}'
+)
+RETURNS TABLE (
+  provider_id UUID,
+  membership_id UUID,
+  slug TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_user_id UUID;
+  v_provider_id UUID;
+  v_membership_id UUID;
+  v_slug TEXT;
+  v_owner_name TEXT;
+  v_user_email TEXT;
+  v_constraint_name TEXT;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
+  IF p_display_name IS NULL OR trim(p_display_name) = '' THEN
+    RAISE EXCEPTION 'Provider display name cannot be blank';
+  END IF;
+
+  v_owner_name := NULLIF(trim(p_owner_display_name), '');
+  IF v_owner_name IS NULL THEN
+    RAISE EXCEPTION 'Owner display name cannot be blank';
+  END IF;
+
+  SELECT u.email INTO v_user_email FROM auth.users u WHERE u.id = v_user_id;
+
+  -- Phase 3: Transactionally serialize all membership-establishing operations.
+  -- This path joins the recipient-email lock boundary shared with
+  -- create_staff_invitation and accept_staff_invitation: normalized owner email
+  -- lock first, then the per-User lock (consistent order, no lock cycle). A
+  -- concurrent Staff-invitation create for this email therefore cannot hold the
+  -- boundary and observe an eligible recipient while onboarding commits a
+  -- membership underneath it.
+  IF v_user_email IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtext('staff-invitation-email:' || lower(trim(v_user_email))));
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext(v_user_id::text));
+
+  -- Invariant: User cannot already have ANY active provider membership
+  IF EXISTS (SELECT 1 FROM public.provider_memberships pm WHERE pm.user_id = v_user_id) THEN
+    RAISE EXCEPTION 'User already has an active provider membership';
+  END IF;
+
+  -- Generate canonical URL slug from display name
+  v_slug := lower(regexp_replace(trim(p_display_name), '[^a-zA-Z0-9]+', '-', 'g'));
+  v_slug := trim(both '-' from v_slug);
+  IF v_slug = '' THEN
+    v_slug := 'provider';
+  END IF;
+
+  -- Invariant: Reject duplicate shop names immediately rather than appending numbering suffixes
+  IF EXISTS (SELECT 1 FROM public.providers WHERE slug = v_slug) THEN
+    RAISE EXCEPTION 'A provider with this name already exists. Please choose a different name.';
+  END IF;
+
+  -- 1. Atomically insert Provider with full initial profile
+  BEGIN
+    INSERT INTO public.providers (
+      display_name,
+      provider_type,
+      slug,
+      contact_email,
+      contact_phone,
+      public_address,
+      service_area,
+      supported_devices
+    ) VALUES (
+      trim(p_display_name),
+      p_provider_type,
+      v_slug,
+      NULLIF(trim(p_contact_email), ''),
+      NULLIF(trim(p_contact_phone), ''),
+      NULLIF(trim(p_public_address), ''),
+      NULLIF(trim(p_service_area), ''),
+      COALESCE(p_supported_devices, '{}')
+    ) RETURNING public.providers.id INTO v_provider_id;
+  EXCEPTION
+    WHEN unique_violation THEN
+      GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
+      IF v_constraint_name = 'providers_slug_key' THEN
+        RAISE EXCEPTION 'A provider with this name already exists. Please choose a different name.';
+      END IF;
+      RAISE;
+  END;
+
+  -- 2. Atomically upsert person profile in provider_user_profiles
+  INSERT INTO public.provider_user_profiles (
+    user_id,
+    display_name,
+    contact_phone
+  ) VALUES (
+    v_user_id,
+    v_owner_name,
+    NULLIF(trim(p_owner_contact_phone), '')
+  )
+  ON CONFLICT (user_id) DO UPDATE
+  SET display_name = EXCLUDED.display_name,
+      contact_phone = COALESCE(EXCLUDED.contact_phone, public.provider_user_profiles.contact_phone),
+      updated_at = now();
+
+  -- 3. Atomically insert OWNER membership (authorization link only)
+  INSERT INTO public.provider_memberships (
+    provider_id,
+    user_id,
+    role
+  ) VALUES (
+    v_provider_id,
+    v_user_id,
+    'OWNER'::public.membership_role
+  ) RETURNING public.provider_memberships.id INTO v_membership_id;
+
+  -- 4. Settlement: now that this person holds an active membership, no active
+  -- pending Staff invitation may remain for this normalized email (across any
+  -- Provider). Any invitation granted by a create that won the race would be
+  -- unusable -- accepting it is impossible while any active membership exists.
+  -- Revoke them so the links stop resolving. (Onboarding ran under the same
+  -- recipient-email advisory lock as create_staff_invitation, so a concurrent
+  -- create either committed before this settlement or will observe the
+  -- membership on its eligibility recheck.)
+  IF v_user_email IS NOT NULL THEN
+    UPDATE public.provider_invitations AS sibling
+    SET revoked_at = now()
+    WHERE lower(sibling.email) = lower(trim(v_user_email))
+      AND sibling.accepted_at IS NULL
+      AND sibling.revoked_at IS NULL
+      AND sibling.expires_at > now();
+  END IF;
+
+  RETURN QUERY SELECT v_provider_id, v_membership_id, v_slug;
+END;
+$$;
+
+REVOKE ALL
+ON FUNCTION public.create_provider_with_owner(
+  TEXT,
+  public.provider_type,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT[]
+)
+FROM PUBLIC;
+
+GRANT EXECUTE
+ON FUNCTION public.create_provider_with_owner(
+  TEXT,
+  public.provider_type,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT,
+  TEXT[]
+)
 TO authenticated;
 
 -- ===========================================================================
