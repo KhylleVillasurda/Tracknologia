@@ -14,6 +14,7 @@ export type InviteStaffState = {
   fieldErrors?: {
     email?: string;
   };
+  reused?: boolean;
   token?: string;
   inviteUrl?: string;
   emailDeliveryFailed?: boolean;
@@ -35,6 +36,13 @@ export async function inviteStaffAction(
     const result = await createStaffInvitation({ email: rawEmail }, supabase);
 
     revalidatePath("/dashboard/team");
+
+    if (result.kind === "reused") {
+      return {
+        success: `A pending invitation already exists for ${result.invitation.email}. Revoke it and invite again to create a fresh invitation link.`,
+        reused: true,
+      };
+    }
 
     if (!result.emailDeliverySuccess) {
       return {
