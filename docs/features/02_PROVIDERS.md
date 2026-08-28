@@ -233,14 +233,17 @@ browser-supplied `providerId`, role, or user ID for these mutations.
     targets and cross-Provider targets are never removable through Staff
     offboarding.
 17. At most one active pending Staff invitation exists per `(provider_id,
-normalized email)`: `create_staff_invitation` reuses an existing active
+ normalized email)`: `create_staff_invitation` reuses an existing active
     pending invitation (no duplicate credential, no regenerated token) rather
     than minting a second simultaneously valid link. A recipient who already
     holds an active membership is ineligible to be invited; the eligibility
-    check serializes with acceptance under the same per-User lock. Accepting an
-    invitation supersedes any remaining active pending sibling for the same
-    Shop + email. Legacy duplicates from before this policy are reconciled to
-    the earliest link per Shop + email by the migration (and by the
+    check serializes with acceptance under a shared recipient-email advisory
+    lock (followed by the per-User lock), so a create/accept race never leaves
+    an unusable active invitation even if the recipient's Auth User is created
+    mid-create. Accepting an invitation supersedes any remaining active
+    pending sibling for the same Shop + email. Legacy duplicates from before
+    this policy are reconciled to the earliest currently-valid link per Shop +
+    email (expired rows stay untouched) by the migration (and by the
     service-role-only `reconcile_staff_invitation_duplicates()` RPC);
     superseded links stop resolving without ever exposing a raw credential.
 

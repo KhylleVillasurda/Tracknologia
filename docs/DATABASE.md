@@ -116,10 +116,12 @@ Governs secure, Owner-authorized Staff onboarding (LD-01).
   reuse an invitation for an email whose account already holds an active
   `provider_memberships` row (the resulting link could never be accepted).
   Re-inviting becomes valid again after Owner offboarding removes the
-  membership. The check runs under the same per-User advisory lock that
-  `accept_staff_invitation` uses to establish membership, so a concurrent
-  create and accept serialize and can never leave an unusable active
-  invitation behind.
+  membership. The check runs under a recipient-email advisory lock (keyed by
+  the normalized recipient email) that `accept_staff_invitation` acquires
+  with the same key before creating the membership, followed by the per-User
+  lock. Because both operations serialize on the same email lock, a concurrent
+  create and accept (even if the recipient's Auth User is created mid-create)
+  can never leave an unusable active invitation behind.
 - On acceptance, `accept_staff_invitation` supersedes any remaining active
   pending invitation for the same Provider + email (`revoked_at` set), so a
   Shop never retains a second unusable link after a member joins.

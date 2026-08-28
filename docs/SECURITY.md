@@ -104,12 +104,15 @@ OWNER to revoke it and invite again.
 
 `create_staff_invitation` also enforces recipient eligibility: an email whose
 account already holds an active Provider membership is refused (that link could
-never be accepted), and the refusal is rechecked under the same per-User lock
-used by acceptance so a create/accept race never leaves an unusable active
-invitation. Legacy duplicate active invitations from before this policy are
-reconciled to the earliest link per Shop + email by the migration (and by the
-service-role-only `reconcile_staff_invitation_duplicates()` maintenance RPC);
-superseded links stop resolving and raw credentials are never reconstructed.
+never be accepted), and the refusal is rechecked under a recipient-email
+advisory lock shared with acceptance (plus the per-User lock) so a
+create/accept race never leaves an unusable active invitation, even if the
+recipient's Auth User is created mid-create. Legacy duplicate active
+invitations from before this policy are reconciled to the earliest
+_currently-valid_ link per Shop + email (expired rows are left untouched; they
+never resolve) by the migration (and by the service-role-only
+`reconcile_staff_invitation_duplicates()` maintenance RPC); superseded links
+stop resolving and raw credentials are never reconstructed.
 Accepting an invitation supersedes any remaining active pending sibling link
 for the same Shop + email.
 
