@@ -226,7 +226,7 @@ export async function insertStaffInvitationRecord(
     email: string;
     tokenHash: string;
   },
-): Promise<ProviderInvitation> {
+): Promise<{ invitation: ProviderInvitation; reused: boolean }> {
   const { data, error } = await supabase.rpc("create_staff_invitation", {
     p_email: params.email,
     p_token_hash: params.tokenHash,
@@ -242,16 +242,19 @@ export async function insertStaffInvitationRecord(
   }
 
   return {
-    id: result.invitation_id,
-    providerId: result.provider_id,
-    email: result.email,
-    role: result.role,
-    invitedByUserId: params.invitedByUserId,
-    createdAt: result.created_at,
-    expiresAt: result.expires_at,
-    acceptedAt: null,
-    acceptedByUserId: null,
-    revokedAt: null,
+    invitation: {
+      id: result.invitation_id,
+      providerId: result.provider_id,
+      email: result.email,
+      role: result.role,
+      invitedByUserId: params.invitedByUserId,
+      createdAt: result.created_at,
+      expiresAt: result.expires_at,
+      acceptedAt: null,
+      acceptedByUserId: null,
+      revokedAt: null,
+    },
+    reused: result.reused === true,
   };
 }
 

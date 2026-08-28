@@ -9,6 +9,8 @@ export {
   updateCurrentProviderUserProfile,
   updateProviderProfile,
   isProviderNameConflictError,
+  type CreatedStaffInvitationResult,
+  type ReusedStaffInvitationResult,
   type CreateStaffInvitationResult,
   type RemoveStaffMemberResult,
 } from "./commands";
