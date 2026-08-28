@@ -129,6 +129,9 @@ jobs:
       - name: Run database integration tests
         run: pnpm test:db
 
+      - name: Rehearse pending-only migration upgrade
+        run: pnpm rehearse:migrations
+
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup || true
