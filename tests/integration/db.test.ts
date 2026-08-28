@@ -1894,6 +1894,270 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     }
   });
 
+  it("reconcile keeps the earliest currently-valid invitation and leaves expired duplicates untouched", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const controlOwner = await createTestUser(
+      adminClient,
+      uniqueEmail("control-owner"),
+      password,
+    );
+    const ownerAuth = await signInTestUser(owner.email, password);
+    const controlAuth = await signInTestUser(controlOwner.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(ownerAuth.client, {
+        displayName: uniqueName("Expiry Shop"),
+      });
+      const otherProvider = await createProviderAs(controlAuth.client, {
+        displayName: uniqueName("Expiry Control"),
+      });
+      createdProviderIds.push(provider.providerId, otherProvider.providerId);
+
+      const groupEmail = uniqueEmail("expiry-dup");
+      const controlEmail = uniqueEmail("expiry-control");
+
+      const dayMs = 24 * 3600_000;
+      const expiredCreatedAt = new Date(Date.now() - 10 * dayMs).toISOString();
+      const expiredExpiresAt = new Date(Date.now() - 3 * dayMs).toISOString();
+      const earlierCreatedAt = new Date(Date.now() - 2 * dayMs).toISOString();
+      const laterCreatedAt = new Date(Date.now() - 1 * dayMs).toISOString();
+      const futureExpiresAt = new Date(Date.now() + 5 * dayMs).toISOString();
+      const futureExpiresAtLate = new Date(
+        Date.now() + 6 * dayMs,
+      ).toISOString();
+
+      // One expired duplicate (created early) plus two currently-valid
+      // duplicates for the same Shop + email, and a lone control invitation on
+      // a different Shop. Reconcile must keep the EARLIEST currently-valid row
+      // (not the expired early row), supersede only the later currently-valid
+      // duplicate, and leave the expired row and the control untouched.
+      const seeds = [
+        {
+          id: randomUUID(),
+          provider_id: provider.providerId,
+          email: groupEmail,
+          role: "STAFF",
+          token_hash: hashInvitationToken(
+            `inv_${randomUUID()}_${randomUUID()}`,
+          ),
+          invited_by_user_id: owner.user.id,
+          created_at: expiredCreatedAt,
+          expires_at: expiredExpiresAt,
+        },
+        {
+          id: randomUUID(),
+          provider_id: provider.providerId,
+          email: groupEmail,
+          role: "STAFF",
+          token_hash: hashInvitationToken(
+            `inv_${randomUUID()}_${randomUUID()}`,
+          ),
+          invited_by_user_id: owner.user.id,
+          created_at: earlierCreatedAt,
+          expires_at: futureExpiresAt,
+        },
+        {
+          id: randomUUID(),
+          provider_id: provider.providerId,
+          email: groupEmail,
+          role: "STAFF",
+          token_hash: hashInvitationToken(
+            `inv_${randomUUID()}_${randomUUID()}`,
+          ),
+          invited_by_user_id: owner.user.id,
+          created_at: laterCreatedAt,
+          expires_at: futureExpiresAtLate,
+        },
+        {
+          id: randomUUID(),
+          provider_id: otherProvider.providerId,
+          email: controlEmail,
+          role: "STAFF",
+          token_hash: hashInvitationToken(
+            `inv_${randomUUID()}_${randomUUID()}`,
+          ),
+          invited_by_user_id: owner.user.id,
+          created_at: earlierCreatedAt,
+          expires_at: futureExpiresAt,
+        },
+      ];
+      assertSupabaseMutation(
+        await adminClient
+          .from("provider_invitations")
+          .insert(seeds)
+          .select("id"),
+        "seed mixed-expiry invitation duplicates",
+      );
+
+      const keptToken = seeds[1].token_hash;
+      const supersededToken = seeds[2].token_hash;
+
+      const reconcile = assertSupabaseSuccess(
+        await adminClient.rpc("reconcile_staff_invitation_duplicates"),
+        "run mixed-expiry legacy reconciliation",
+      );
+      expect(reconcile.data).toBe(1);
+
+      const rows = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id, token_hash, accepted_at, revoked_at")
+          .in(
+            "id",
+            seeds.map((seed) => seed.id),
+          ),
+        "read invitation states after mixed-expiry reconciliation",
+      );
+      const byToken = new Map(rows.data?.map((row) => [row.token_hash, row]));
+
+      // The earliest currently-valid invitation survives.
+      expect(byToken.get(keptToken)?.accepted_at).toBeNull();
+      expect(byToken.get(keptToken)?.revoked_at).toBeNull();
+      // The later currently-valid duplicate is superseded.
+      expect(byToken.get(supersededToken)?.revoked_at).not.toBeNull();
+      // The expired duplicate is left untouched (it never resolves anyway).
+      expect(byToken.get(seeds[0].token_hash)?.accepted_at).toBeNull();
+      expect(byToken.get(seeds[0].token_hash)?.revoked_at).toBeNull();
+      // The control invitation is untouched.
+      expect(byToken.get(seeds[3].token_hash)?.revoked_at).toBeNull();
+
+      // The survived link resolves.
+      const kept = assertSupabaseSuccess(
+        await anonClient.rpc("get_invitation_details", {
+          p_token_hash: keptToken,
+        }),
+        "resolve the kept currently-valid invitation link",
+      );
+      expect(Array.isArray(kept.data) ? kept.data.length : 0).toBeGreaterThan(
+        0,
+      );
+
+      // The superseded duplicate and the expired (untouched) link do not.
+      for (const token of [supersededToken, seeds[0].token_hash]) {
+        const details = await anonClient.rpc("get_invitation_details", {
+          p_token_hash: token,
+        });
+        expect(details.error ?? null).toBeNull();
+        expect(Array.isArray(details.data) ? details.data.length : 0).toBe(0);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id, controlOwner.user.id],
+      });
+    }
+  });
+
+  it("create vs register-and-accept race leaves exactly one membership and no unusable active invitation", async () => {
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const ownerAuth = await signInTestUser(owner.email, password);
+    const createdProviderIds: string[] = [];
+    const createdUserIds = [owner.user.id];
+
+    try {
+      const provider = await createProviderAs(ownerAuth.client, {
+        displayName: uniqueName("Race Shop"),
+      });
+      createdProviderIds.push(provider.providerId);
+
+      // Each iteration starts from an eligible recipient (no membership): a
+      // seeded active invitation already exists for the Shop+email, then an
+      // Owner create races the recipient's own account registration + accept
+      // of that same email (the "Auth User appears mid-create" scenario).
+      // Whichever order commits inside the shared recipient-email lock, the
+      // invariant must hold: exactly one membership AND zero active pending
+      // invitations left for the Shop+email.
+      const iterations = 6;
+      for (let i = 0; i < iterations; i += 1) {
+        const recipientEmail = uniqueEmail(`race-r${i}`);
+        const seed = await createInvitationAs(ownerAuth.client, recipientEmail);
+
+        const [createResult, account] = await Promise.all([
+          ownerAuth.client.rpc("create_staff_invitation", {
+            p_email: recipientEmail,
+            p_token_hash: hashInvitationToken(
+              `inv_${randomUUID()}_${randomUUID()}`,
+            ),
+          }),
+          (async () => {
+            const registered = await createTestUser(
+              adminClient,
+              recipientEmail,
+              password,
+            );
+            createdUserIds.push(registered.user.id);
+            const signedIn = await signInTestUser(recipientEmail, password);
+            const accept = await acceptInvitationAs(
+              signedIn.client,
+              seed.tokenHash,
+            );
+            expect(accept.error).toBeNull();
+            return registered;
+          })(),
+        ]);
+
+        // create either reused the seeded invitation, minted a fresh one (the
+        // acceptance settlement then supersedes it), or was refused because the
+        // recipient had already become a member. Its own error is acceptable;
+        // the resulting state is what has to be proven.
+        const createRow = Array.isArray(createResult.data)
+          ? createResult.data[0]
+          : createResult.data;
+        if (createResult.error === null && createRow) {
+          if (createRow.reused === true) {
+            expect(createRow.invitation_id).toBe(seed.invitationId);
+          } else {
+            const fresh = assertSupabaseSuccess(
+              await adminClient
+                .from("provider_invitations")
+                .select("accepted_at, revoked_at")
+                .eq("id", createRow.invitation_id)
+                .single(),
+              "read freshly created race invitation state",
+            );
+            expect(fresh.data?.revoked_at).not.toBeNull();
+          }
+        }
+
+        const memberships = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_memberships")
+            .select("id")
+            .eq("user_id", account.user.id),
+          "read race membership count",
+        );
+        expect(memberships.data).toHaveLength(1);
+
+        const pending = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_invitations")
+            .select("id")
+            .eq("provider_id", provider.providerId)
+            .eq("email", recipientEmail)
+            .is("accepted_at", null)
+            .is("revoked_at", null)
+            .gt("expires_at", new Date().toISOString()),
+          "read active pending invitations after race iteration",
+        );
+        expect(pending.data).toHaveLength(0);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: createdUserIds,
+      });
+    }
+  });
+
   it("two concurrent Staff invite accepts for one User create exactly one membership and consume one invitation", async () => {
     const ownerA = await createTestUser(
       adminClient,
