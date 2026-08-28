@@ -22,15 +22,23 @@
 #  5. Copies the pending migration(s) in and runs `db push --local`, i.e. the
 #     apply-pending-only upgrade.
 #  6. Runs the full database integration suite against the upgraded lab.
-#     The single environment-specific "anon can SELECT raw providers" failure
-#     seen on local dev stacks (local images auto-grant anon defaults) is
-#     tolerated with a warning; every other failure is fatal.
-#  7. Tears the lab down (trap) and prints an evidence summary.
+#     With no integrations-relevant changes the suite passes as-is. On local
+#     dev stacks the environment-specific "anon can SELECT raw providers"
+#     failure (local images auto-grant anon defaults) is only tolerated when
+#     REHEARSAL_ALLOW_ANON_QUIRK=1 is set; otherwise it is treated like any
+#     other failure (fail-closed). CI stacks do not exhibit the quirk.
+#  7. If no migration is pending relative to the base ref, the rehearsal is
+#     INAPPLICABLE and exits 0; shared migration edits/deletions are still
+#     fatal (forward-only is immutable) so the check cannot be silently
+#     skipped.
+#  8. Tears the lab down (trap) and prints an evidence summary.
 #
 # Usage:  pnpm rehearse:migrations [--base <git-ref>]
-# Env:    REHEARSAL_BASE_REF   base git ref (default: staging via a remote)
-#         REHEARSAL_PORT_OFFSET offset added to every lab port (default 4000)
-#         REHEARSAL_TMPDIR       parent dir for the scratch lab (default: $TMPDIR or /tmp)
+# Env:    REHEARSAL_BASE_REF           base git ref (default: staging via a remote)
+#         REHEARSAL_PORT_OFFSET        offset added to every lab port (default 4000)
+#         REHEARSAL_TMPDIR             parent dir for the scratch lab (default: $TMPDIR or /tmp)
+#         REHEARSAL_ALLOW_ANON_QUIRK   set to 1 to tolerate the local-only
+#                                      "anon cannot SELECT raw providers" quirk
 #
 set -euo pipefail
 
@@ -53,9 +61,25 @@ fi
 # dev stack is never touched.
 cli() { ( cd "$lab_root" && $supabase_bin "$@" ); }
 
-base_ref="${REHEARSAL_BASE_REF:-${1:-}}"
-if [ "$#" -gt 0 ]; then shift; fi
-if [ "$#" -gt 1 ]; then die "unexpected extra arguments: $*"; fi
+base_ref="${REHEARSAL_BASE_REF:-}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --base)
+      if [ -z "${2:-}" ]; then
+        die "--base requires a git ref (e.g. --base staging)"
+      fi
+      base_ref="$2"
+      shift 2
+      ;;
+    --base=*)
+      base_ref="${1#--base=}"
+      shift
+      ;;
+    *)
+      die "unexpected argument: $1 (usage: pnpm rehearse:migrations [--base <git-ref>])"
+      ;;
+  esac
+done
 if [ -z "$base_ref" ]; then
   base_ref="staging"
 fi
@@ -96,11 +120,19 @@ pending="$(git diff --name-only --diff-filter=A "$base_ref" -- supabase/migratio
 deleted="$(git diff --name-only --diff-filter=D "$base_ref" -- supabase/migrations || true)"
 modified="$(git diff --name-only --diff-filter=M "$base_ref" -- supabase/migrations || true)"
 
-if [ -z "$pending" ]; then
-  die "no pending (added) migrations found relative to $base_ref; nothing to rehearse"
-fi
 if [ -n "$deleted" ] || [ -n "$modified" ]; then
   die "shared migration history must stay immutable (forward-only). Modified/deleted base migrations:\n$(printf '%s\n' $deleted $modified)"
+fi
+
+if [ -z "$pending" ]; then
+  log "no pending (added) migrations relative to $base_ref"
+  printf '============ rehearsal summary ============\n'
+  printf 'base baseline   : %s (%s)\n' "$base_ref" "$base_sha"
+  printf 'pending set     : (none)\n'
+  printf 'shared changes  : none (forward-only verified)\n'
+  printf 'suite result    : INAPPLICABLE (no migration to rehearse)\n'
+  printf '===========================================\n'
+  exit 0
 fi
 
 log "shared migrations unchanged relative to base (forward-only verified)"
@@ -159,9 +191,11 @@ cli start >/dev/null
 log "exporting lab environment"
 lab_env="$(cli status -o env)"
 eval "$lab_env"
-export SUPABASE_TEST_URL="${SUPABASE_TEST_URL:-$API_URL}"
-export SUPABASE_TEST_ANON_KEY="${SUPABASE_TEST_ANON_KEY:-$ANON_KEY}"
-export SUPABASE_TEST_SERVICE_ROLE_KEY="${SUPABASE_TEST_SERVICE_ROLE_KEY:-$SERVICE_ROLE_KEY}"
+# Always target the LAB, even if stale SUPABASE_TEST_* values were inherited
+# from the environment (e.g. the dev-stack export earlier in a CI job).
+export SUPABASE_TEST_URL="$API_URL"
+export SUPABASE_TEST_ANON_KEY="$ANON_KEY"
+export SUPABASE_TEST_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
 log "lab API URL: $SUPABASE_TEST_URL"
 
 results="$lab_root/db-suite.log"
@@ -173,7 +207,7 @@ set -e
 
 if [ "$rc" -eq 0 ]; then
   log "database integration suite PASSED against the upgraded lab"
-else
+elif [ "${REHEARSAL_ALLOW_ANON_QUIRK:-0}" = "1" ]; then
   known_anon_failure=0
   if grep -q "Tests  1 failed | " "$results" \
      && grep -q "anon cannot SELECT raw providers" "$results" \
@@ -183,7 +217,7 @@ else
   if [ "$known_anon_failure" -eq 1 ]; then
     printf '[rehearse] warning: exactly one suite failure is the known local env-specific\n'
     printf '            "anon cannot SELECT raw providers" default-grant quirk (CI stacks are green).\n'
-    printf '            Treating the rehearsal as passed.\n'
+    printf '            Treating the rehearsal as passed (REHEARSAL_ALLOW_ANON_QUIRK=1).\n'
     rc=0
   fi
 fi
