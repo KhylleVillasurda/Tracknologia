@@ -1,4 +1,5 @@
 import "server-only";
+import { getServerConfig } from "@/lib/config/server";
 import { createClient } from "@/lib/supabase/server";
 import type { LoginInput, RegisterInput } from "./schemas";
 
@@ -20,6 +21,7 @@ export async function registerProviderAccount(
   params: RegisterInput & { emailRedirectTo?: string },
 ) {
   const supabase = await createClient();
+  const config = getServerConfig();
 
   const { data, error } = await supabase.auth.signUp({
     email: params.email,
@@ -58,6 +60,12 @@ export async function registerProviderAccount(
         // continue
       }
 
+      if (config.runtime === "production") {
+        throw new Error(
+          "Confirmation email delivery failed. Please try again later or contact support.",
+        );
+      }
+
       throw new Error(
         "Email delivery failed. If using Custom SMTP, verify your SMTP credentials (or Google App Password). To skip email verification in development, disable 'Confirm email' in Supabase -> Authentication -> Email.",
       );
@@ -74,6 +82,7 @@ export async function requestPasswordReset(params: {
   redirectTo?: string;
 }) {
   const supabase = await createClient();
+  const config = getServerConfig();
   const { data, error } = await supabase.auth.resetPasswordForEmail(
     params.email,
     {
@@ -82,6 +91,11 @@ export async function requestPasswordReset(params: {
   );
 
   if (error) {
+    if (config.runtime === "production") {
+      throw new Error(
+        "Unable to send password reset email at this time. Please try again later.",
+      );
+    }
     throw new Error(error.message);
   }
 
