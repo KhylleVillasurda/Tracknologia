@@ -109,10 +109,19 @@ NULL` and `expires_at > now()`.
   an email whose account already holds an active `provider_memberships`
   membership — such a link could never be accepted. Re-inviting a former Staff
   member becomes valid again after the Owner offboards them
-  (`remove_staff_member`), which removes the membership.
-- **Settlement on acceptance**: accepting an invitation supersedes any other
-  active pending invitation for the same Provider + email, so a Shop never
-  retains a second unusable link once the recipient has joined.
+  (`remove_staff_member`), which removes the membership. Eligibility rechecks
+  on create serialize under a recipient-email advisory lock shared by all
+  membership-establishing paths (`create_staff_invitation`,
+  `accept_staff_invitation`, and `create_provider_with_owner` — the composite
+  `create_provider_with_owner_and_modes` delegates to the latter), taken in
+  consistent order (recipient-email lock, then per-User lock).
+- **Settlement on membership**: the one-membership rule is per User across
+  Providers. Once the recipient holds any active membership, all other
+  currently-active pending invitations for the same normalized email are
+  superseded across **all** Providers — acceptance and Owner onboarding both
+  settle globally — so a different-Provider invitation held while the
+  recipient was eligible stops resolving. Same-email invitations across Shops
+  remain independent only while the recipient has no membership.
 
 ### `provider_service_modes`
 
@@ -233,15 +242,21 @@ browser-supplied `providerId`, role, or user ID for these mutations.
     targets and cross-Provider targets are never removable through Staff
     offboarding.
 17. At most one active pending Staff invitation exists per `(provider_id,
- normalized email)`: `create_staff_invitation` reuses an existing active
+  normalized email)`: `create_staff_invitation` reuses an existing active
     pending invitation (no duplicate credential, no regenerated token) rather
     than minting a second simultaneously valid link. A recipient who already
     holds an active membership is ineligible to be invited; the eligibility
-    check serializes with acceptance under a shared recipient-email advisory
-    lock (followed by the per-User lock), so a create/accept race never leaves
-    an unusable active invitation even if the recipient's Auth User is created
-    mid-create. Accepting an invitation supersedes any remaining active
-    pending sibling for the same Shop + email. Legacy duplicates from before
+    check serializes under a shared recipient-email advisory lock (followed by
+    the per-User lock) that `accept_staff_invitation` and
+    `create_provider_with_owner` (`create_provider_with_owner_and_modes`
+    delegates to it) also take to establish memberships, so a create/accept
+    race never leaves an unusable active invitation even if the recipient's
+    Auth User is created mid-create or the create is issued by another Shop.
+    Because the one-membership rule is per User across Providers, once any
+    member is joined every other currently-active pending invitation for the
+    normalized email is superseded across Providers (acceptance and Owner
+    onboarding settle globally); cross-Shop invitations stay independent only
+    while the recipient has no membership. Legacy duplicates from before
     this policy are reconciled to the earliest currently-valid link per Shop +
     email (expired rows stay untouched) by the migration (and by the
     service-role-only `reconcile_staff_invitation_duplicates()` RPC);

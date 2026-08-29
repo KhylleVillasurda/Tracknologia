@@ -105,16 +105,23 @@ OWNER to revoke it and invite again.
 `create_staff_invitation` also enforces recipient eligibility: an email whose
 account already holds an active Provider membership is refused (that link could
 never be accepted), and the refusal is rechecked under a recipient-email
-advisory lock shared with acceptance (plus the per-User lock) so a
-create/accept race never leaves an unusable active invitation, even if the
-recipient's Auth User is created mid-create. Legacy duplicate active
+advisory lock shared with the other membership-establishing paths. Acceptance
+(`accept_staff_invitation`) and Owner onboarding
+(`create_provider_with_owner`, including the composite
+`create_provider_with_owner_and_modes` wrapper) take the same recipient-email
+lock followed by the per-User lock, so a create/accept race never leaves an
+unusable active invitation, even if the recipient's Auth User is created
+mid-create or the create is issued by a different Shop. Legacy duplicate active
 invitations from before this policy are reconciled to the earliest
 _currently-valid_ link per Shop + email (expired rows are left untouched; they
 never resolve) by the migration (and by the service-role-only
 `reconcile_staff_invitation_duplicates()` maintenance RPC); superseded links
 stop resolving and raw credentials are never reconstructed.
-Accepting an invitation supersedes any remaining active pending sibling link
-for the same Shop + email.
+The one-membership rule is per User across Providers, so once any Provider
+membership is established every other currently-active pending invitation for
+that normalized email — including invitations held by other Shops while the
+recipient was still eligible — is superseded. Cross-Shop invitations remain
+independent only while the recipient has no membership.
 
 ## Server Actions and Route Handlers
 
