@@ -1774,6 +1774,119 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
     }
   });
 
+  it("accepting Shop A settles the other Provider's active invitation for the same email", async () => {
+    const ownerA = await createTestUser(
+      adminClient,
+      uniqueEmail("owner-a"),
+      password,
+    );
+    const ownerB = await createTestUser(
+      adminClient,
+      uniqueEmail("owner-b"),
+      password,
+    );
+    const staff = await createTestUser(
+      adminClient,
+      uniqueEmail("staff"),
+      password,
+    );
+    const ownerAAuth = await signInTestUser(ownerA.email, password);
+    const ownerBAuth = await signInTestUser(ownerB.email, password);
+    const staffAuth = await signInTestUser(staff.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const providerA = await createProviderAs(ownerAAuth.client);
+      const providerB = await createProviderAs(ownerBAuth.client);
+      createdProviderIds.push(providerA.providerId, providerB.providerId);
+
+      // The same still-eligible recipient email holds an active invitation at
+      // both Shops before membership (cross-Provider independence).
+      const inviteA = await createInvitationAs(ownerAAuth.client, staff.email);
+      const inviteB = await createInvitationAs(ownerBAuth.client, staff.email);
+      expect(inviteA.reused).toBe(false);
+      expect(inviteB.reused).toBe(false);
+      for (const [providerId, invite] of [
+        [providerA.providerId, inviteA],
+        [providerB.providerId, inviteB],
+      ] as const) {
+        const active = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_invitations")
+            .select("id")
+            .eq("provider_id", providerId)
+            .eq("email", staff.email)
+            .is("accepted_at", null)
+            .is("revoked_at", null)
+            .gt("expires_at", new Date().toISOString()),
+          "read active invitation per Shop before membership",
+        );
+        expect(active.data?.map((row) => row.id)).toContain(
+          invite.invitationId,
+        );
+      }
+
+      // Accept Shop A only.
+      assertSupabaseSuccess(
+        await acceptInvitationAs(staffAuth.client, inviteA.tokenHash),
+        "recipient accepts Shop A invitation",
+      );
+
+      // Exactly one membership exists (the global one-membership rule).
+      const memberships = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_memberships")
+          .select("id, provider_id")
+          .eq("user_id", staff.user.id),
+        "read memberships after Shop A acceptance",
+      );
+      expect(memberships.data).toHaveLength(1);
+      expect(memberships.data?.[0]?.provider_id).toBe(providerA.providerId);
+
+      // Shop A invitation accepted; Shop B invitation revoked (membership
+      // establishment is a recipient-wide invalidation boundary).
+      const rows = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id, accepted_at, revoked_at")
+          .in("id", [inviteA.invitationId, inviteB.invitationId]),
+        "read invitation states after global settlement",
+      );
+      const byId = new Map(rows.data?.map((row) => [row.id, row]));
+      expect(byId.get(inviteA.invitationId)?.accepted_at).not.toBeNull();
+      expect(byId.get(inviteA.invitationId)?.revoked_at).toBeNull();
+      expect(byId.get(inviteB.invitationId)?.accepted_at).toBeNull();
+      expect(byId.get(inviteB.invitationId)?.revoked_at).not.toBeNull();
+
+      // Shop B's link is non-resolving.
+      const superseded = await anonClient.rpc("get_invitation_details", {
+        p_token_hash: inviteB.tokenHash,
+      });
+      expect(superseded.error ?? null).toBeNull();
+      expect(Array.isArray(superseded.data) ? superseded.data.length : 0).toBe(
+        0,
+      );
+
+      // No active pending invitation remains for the email across Providers.
+      const pending = assertSupabaseSuccess(
+        await adminClient
+          .from("provider_invitations")
+          .select("id")
+          .eq("email", staff.email)
+          .is("accepted_at", null)
+          .is("revoked_at", null)
+          .gt("expires_at", new Date().toISOString()),
+        "read active pending invitations after global settlement",
+      );
+      expect(pending.data).toHaveLength(0);
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [ownerA.user.id, ownerB.user.id, staff.user.id],
+      });
+    }
+  });
+
   it("reconciles legacy duplicate active invitations to a single valid link per Shop and email", async () => {
     const owner = await createTestUser(
       adminClient,
@@ -2147,6 +2260,115 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
             .is("revoked_at", null)
             .gt("expires_at", new Date().toISOString()),
           "read active pending invitations after race iteration",
+        );
+        expect(pending.data).toHaveLength(0);
+      }
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: createdUserIds,
+      });
+    }
+  });
+
+  it("cross-Shop create vs accept race leaves exactly one membership and no unusable active invitation", async () => {
+    const ownerA = await createTestUser(
+      adminClient,
+      uniqueEmail("owner-a"),
+      password,
+    );
+    const ownerB = await createTestUser(
+      adminClient,
+      uniqueEmail("owner-b"),
+      password,
+    );
+    const ownerAAuth = await signInTestUser(ownerA.email, password);
+    const ownerBAuth = await signInTestUser(ownerB.email, password);
+    const createdProviderIds: string[] = [];
+    const createdUserIds = [ownerA.user.id, ownerB.user.id];
+
+    try {
+      const providerA = await createProviderAs(ownerAAuth.client);
+      const providerB = await createProviderAs(ownerBAuth.client);
+      createdProviderIds.push(providerA.providerId, providerB.providerId);
+
+      // Each iteration seeds a Shop A invitation for a fresh eligible
+      // recipient, then races a Shop B create for the same email against the
+      // recipient's account registration + acceptance of the Shop A invite.
+      // Whichever side wins the shared recipient-email lock, the durable state
+      // must be exactly one membership AND zero active pending invitations for
+      // the email across both Shops.
+      const iterations = 6;
+      for (let i = 0; i < iterations; i += 1) {
+        const recipientEmail = uniqueEmail(`cross-shop-r${i}`);
+        const seed = await createInvitationAs(
+          ownerAAuth.client,
+          recipientEmail,
+        );
+
+        const [createResult, registered] = await Promise.all([
+          ownerBAuth.client.rpc("create_staff_invitation", {
+            p_email: recipientEmail,
+            p_token_hash: hashInvitationToken(
+              `inv_${randomUUID()}_${randomUUID()}`,
+            ),
+          }),
+          (async () => {
+            const account = await createTestUser(
+              adminClient,
+              recipientEmail,
+              password,
+            );
+            createdUserIds.push(account.user.id);
+            const signedIn = await signInTestUser(recipientEmail, password);
+            const accept = await acceptInvitationAs(
+              signedIn.client,
+              seed.tokenHash,
+            );
+            expect(accept.error).toBeNull();
+            return account;
+          })(),
+        ]);
+
+        // If the Shop B create won the lock before Shop A acceptance, it
+        // minted a fresh Shop B invitation that the global settlement must
+        // revoke once the membership exists. If it lost, its eligibility
+        // recheck refused it. Its own error is acceptable; the resulting
+        // state is what has to be proven.
+        const createRow = Array.isArray(createResult.data)
+          ? createResult.data[0]
+          : createResult.data;
+        if (createResult.error === null && createRow) {
+          const outcome = assertSupabaseSuccess(
+            await adminClient
+              .from("provider_invitations")
+              .select("accepted_at, revoked_at")
+              .eq("id", createRow.invitation_id)
+              .single(),
+            "read cross-shop race invitation state",
+          );
+          expect(outcome.data?.accepted_at).toBeNull();
+          expect(outcome.data?.revoked_at).not.toBeNull();
+        }
+
+        const memberships = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_memberships")
+            .select("id")
+            .eq("user_id", registered.user.id),
+          "read cross-shop race membership count",
+        );
+        expect(memberships.data).toHaveLength(1);
+
+        const pending = assertSupabaseSuccess(
+          await adminClient
+            .from("provider_invitations")
+            .select("id")
+            .eq("email", recipientEmail)
+            .is("accepted_at", null)
+            .is("revoked_at", null)
+            .gt("expires_at", new Date().toISOString()),
+          "read active pending invitations after cross-shop race iteration",
         );
         expect(pending.data).toHaveLength(0);
       }
