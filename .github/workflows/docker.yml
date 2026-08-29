@@ -39,7 +39,7 @@ jobs:
           push: false
           tags: tracknologia:ci
           build-args: |
-            NEXT_PUBLIC_APP_URL=https://ci.tracknologia.local
+            NEXT_PUBLIC_APP_URL=http://localhost:3000
             NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co
             NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=ci-placeholder
           cache-from: type=gha
