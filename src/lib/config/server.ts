@@ -94,7 +94,10 @@ export function parseServerConfig(
   const runtime = resolveRuntimeEnvironment(env, overrideRuntime);
 
   // 1. App URL & Canonical Origin
-  const rawAppUrl = env.NEXT_PUBLIC_APP_URL?.trim();
+  const rawAppUrl =
+    env.NEXT_PUBLIC_APP_URL?.trim() ||
+    (runtime === "production" ? "" : "http://localhost:3000");
+
   if (!rawAppUrl) {
     throw new Error("Configuration error: NEXT_PUBLIC_APP_URL is required.");
   }
@@ -121,21 +124,31 @@ export function parseServerConfig(
   const origin = parsedAppUrl.origin;
 
   // 2. Supabase Configuration
-  const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const supabaseUrl =
+    env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
+    (runtime === "production" ? "" : "http://127.0.0.1:54321");
   if (!supabaseUrl || !isValidUrl(supabaseUrl)) {
     throw new Error(
       "Configuration error: NEXT_PUBLIC_SUPABASE_URL must be a valid absolute URL.",
     );
   }
 
-  const publishableKey = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  const publishableKey =
+    env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    (runtime === "production"
+      ? ""
+      : "sb_pub_default_local_dev_key_32_chars_long");
   if (!publishableKey) {
     throw new Error(
       "Configuration error: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required and cannot be empty.",
     );
   }
 
-  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const serviceRoleKey =
+    env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    (runtime === "production"
+      ? ""
+      : "sb_service_default_local_dev_key_32_chars");
   if (!serviceRoleKey) {
     throw new Error(
       "Configuration error: SUPABASE_SERVICE_ROLE_KEY is required for server operations.",
