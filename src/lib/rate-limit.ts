@@ -6,11 +6,11 @@ import { isIP } from "node:net";
 import { headers } from "next/headers";
 import { z } from "zod";
 
+import { getServerConfig } from "@/lib/config/server";
 import { createPublicOperationClient } from "@/lib/supabase/service";
 
 const positiveInteger = z.coerce.number().int().positive();
-const rateLimitEnvironmentSchema = z.object({
-  PUBLIC_ABUSE_HMAC_SECRET: z.string().min(32),
+const rateLimitOverridesSchema = z.object({
   PUBLIC_ABUSE_TRACKING_LOOKUP_MAX: positiveInteger.max(10_000).default(30),
   PUBLIC_ABUSE_TRACKING_LOOKUP_WINDOW_SECONDS: positiveInteger
     .max(86_400)
@@ -21,7 +21,6 @@ const rateLimitEnvironmentSchema = z.object({
     .default(600),
 });
 
-const trustedProxySecretSchema = z.string().min(32);
 const TRUSTED_PROXY_PROOF_HEADER = "x-tracknologia-proxy-secret";
 const TRUSTED_CLIENT_IP_HEADER = "x-tracknologia-client-ip";
 const LOCAL_DEVELOPMENT_IDENTIFIER = "local-development-shared";
@@ -33,18 +32,19 @@ export interface RateLimitResult {
 }
 
 export function getRateLimitConfig() {
-  const environment = rateLimitEnvironmentSchema.parse(process.env);
+  const config = getServerConfig();
+  const overrides = rateLimitOverridesSchema.parse(process.env);
 
   return {
-    secret: environment.PUBLIC_ABUSE_HMAC_SECRET,
+    secret: config.publicAbuse.hmacSecret,
     operations: {
       tracking_lookup: {
-        windowSeconds: environment.PUBLIC_ABUSE_TRACKING_LOOKUP_WINDOW_SECONDS,
-        max: environment.PUBLIC_ABUSE_TRACKING_LOOKUP_MAX,
+        windowSeconds: overrides.PUBLIC_ABUSE_TRACKING_LOOKUP_WINDOW_SECONDS,
+        max: overrides.PUBLIC_ABUSE_TRACKING_LOOKUP_MAX,
       },
       repair_request_submit: {
-        windowSeconds: environment.PUBLIC_ABUSE_REPAIR_REQUEST_WINDOW_SECONDS,
-        max: environment.PUBLIC_ABUSE_REPAIR_REQUEST_MAX,
+        windowSeconds: overrides.PUBLIC_ABUSE_REPAIR_REQUEST_WINDOW_SECONDS,
+        max: overrides.PUBLIC_ABUSE_REPAIR_REQUEST_MAX,
       },
     },
   } as const;
@@ -64,20 +64,19 @@ function constantTimeSecretMatch(expected: string, actual: string): boolean {
 }
 
 export async function resolveClientIdentifier(): Promise<string> {
-  if (process.env.PUBLIC_ABUSE_SHARED_DEV_BUCKET === "true") {
+  const config = getServerConfig();
+  if (config.publicAbuse.sharedDevBucket) {
     return LOCAL_DEVELOPMENT_IDENTIFIER;
-  }
-
-  const proxySecret = trustedProxySecretSchema.safeParse(
-    process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET,
-  );
-  if (!proxySecret.success) {
-    throw new Error("Public operation trusted ingress is not configured");
   }
 
   const headerList = await headers();
   const suppliedProof = headerList.get(TRUSTED_PROXY_PROOF_HEADER) ?? "";
-  if (!constantTimeSecretMatch(proxySecret.data, suppliedProof)) {
+  if (
+    !constantTimeSecretMatch(
+      config.publicAbuse.trustedProxySecret,
+      suppliedProof,
+    )
+  ) {
     throw new Error("Public operation trusted ingress verification failed");
   }
 
