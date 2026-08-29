@@ -7,11 +7,13 @@
 -- It redefines:
 --   - create_staff_invitation                      (recipient-eligibility recheck under a
 --                                                   shared recipient-email advisory lock)
---   - accept_staff_invitation                      (acceptance settlement superseding sibling
---                                                   invitations under the same email lock)
+--   - accept_staff_invitation                      (global acceptance settlement: once a
+--                                                   membership exists, supersede active pending
+--                                                   invitations for the recipient email across
+--                                                   Providers under the same email lock)
 --   - create_provider_with_owner                   (Owner onboarding joins the shared
 --                                                   recipient-email lock boundary and settles
---                                                   unusable active Staff invitations)
+--                                                   unusable active Staff invitations globally)
 --   - reconcile_staff_invitation_duplicates        (revoke only currently-valid superseded
 --                                                   duplicates; expired rows stay untouched)
 -- Because the acceptance changes ship in this genuine (pending) forward migration, the
@@ -205,9 +207,11 @@ TO authenticated;
 -- applying only this pending migration. The redefinition adds the
 -- recipient-email advisory lock shared with create_staff_invitation, so a
 -- membership can never be established while a create is (re)checking
--- eligibility without observing it. It also supersedes sibling invitations so
--- no unusable active invitation remains for the same Provider + email after
--- the recipient holds an active membership.
+-- eligibility without observing it. It also supersedes invitations globally:
+-- the one-membership rule is per User (across Providers), so once any
+-- membership is established, no unusable active invitation may remain for the
+-- normalized recipient email at any Provider. Cross-Provider invitation
+-- independence is preserved while the recipient is still eligible.
 -- ===========================================================================
 DROP FUNCTION IF EXISTS public.accept_staff_invitation(TEXT);
 DROP FUNCTION IF EXISTS public.accept_staff_invitation(TEXT, TEXT, TEXT);
@@ -335,20 +339,22 @@ BEGIN
       accepted_by_user_id = v_user_id
   WHERE id = v_invitation_id;
 
-  -- 4. Settlement: now that the recipient holds an active membership, no other
-  -- active pending invitation may remain for the same Provider + normalized
-  -- email. Any such sibling invitation would be unusable; supersede it so the
-  -- link stops resolving. (The membership was established while holding the
-  -- recipient-email advisory lock shared with create_staff_invitation, so a
-  -- concurrent create that raced this accept has already committed or will
-  -- observe the membership on recheck.)
+  -- 4. Settlement: the one-membership-per-User rule is global, so once this
+  -- recipient holds an active membership no other currently-active pending
+  -- Staff invitation may remain for the normalized email at ANY Provider.
+  -- Same-email invitations from other Shops were valid while the recipient was
+  -- eligible, but accepting any one of them is now impossible; supersede every
+  -- remaining active pending invitation so the links stop resolving. (The
+  -- membership was established while holding the recipient-email advisory lock
+  -- shared with create_staff_invitation, so a concurrent create that raced this
+  -- accept has already committed or will observe the membership on recheck.)
   UPDATE public.provider_invitations AS sibling
   SET revoked_at = now()
-  WHERE sibling.provider_id = v_provider_id
-    AND lower(sibling.email) = lower(trim(v_invite_email))
+  WHERE lower(sibling.email) = lower(trim(v_invite_email))
     AND sibling.id <> v_invitation_id
     AND sibling.accepted_at IS NULL
-    AND sibling.revoked_at IS NULL;
+    AND sibling.revoked_at IS NULL
+    AND sibling.expires_at > now();
 
   RETURN QUERY SELECT v_provider_id, v_membership_id, v_invite_role;
 END;
