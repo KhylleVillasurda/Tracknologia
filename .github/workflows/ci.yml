@@ -132,3 +132,9 @@ jobs:
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup || true
+
+      # The rehearsal boots its own scratch Supabase lab on offset ports and
+      # needs no dev stack, so it runs only after the dev stack has stopped
+      # to keep the runner from running two Supabase stacks at once.
+      - name: Rehearse pending-only migration upgrade
+        run: pnpm rehearse:migrations

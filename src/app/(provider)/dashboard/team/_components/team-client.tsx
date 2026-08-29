@@ -132,6 +132,12 @@ export function TeamClient({
               </div>
             )}
 
+            {state?.reused && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-medium text-amber-600 dark:text-amber-400">
+                {state.success}
+              </div>
+            )}
+
             {/* Generated Invite Box (Displayed strictly once at creation time) */}
             {state?.token && state.inviteUrl && (
               <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3">

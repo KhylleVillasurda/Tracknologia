@@ -218,17 +218,31 @@ export async function setServiceModes(
   );
 }
 
-export interface CreateStaffInvitationResult {
+export interface CreatedStaffInvitationResult {
+  kind: "created";
   invitation: ProviderInvitation;
   rawToken: string;
   inviteUrl: string;
   emailDeliverySuccess: boolean;
 }
 
+export interface ReusedStaffInvitationResult {
+  kind: "reused";
+  invitation: ProviderInvitation;
+}
+
+export type CreateStaffInvitationResult =
+  CreatedStaffInvitationResult | ReusedStaffInvitationResult;
+
 /**
  * Creates a secure staff invitation for a Shop Provider.
  * Generates a high-entropy raw token, persists only its SHA-256 digest,
  * and attempts email delivery.
+ *
+ * If the Shop already has an active pending invitation for the same email,
+ * the existing invitation is returned (`reused`, no new credential, no email)
+ * so retries and double-clicks cannot create multiple simultaneously valid
+ * invitations.
  */
 export async function createStaffInvitation(
   input: { email: string },
@@ -252,13 +266,17 @@ export async function createStaffInvitation(
   const rawToken = `inv_${randomBytes(24).toString("hex")}`;
   const tokenHash = hashInvitationToken(rawToken);
 
-  // 4. Persist invitation record with hashed token
-  const invitation = await insertStaffInvitationRecord(supabase, {
+  // 4. Persist invitation record with hashed token (or reuse an active one)
+  const { invitation, reused } = await insertStaffInvitationRecord(supabase, {
     providerId: context.providerId,
     invitedByUserId: context.userId,
     email: parsed.data.email,
     tokenHash,
   });
+
+  if (reused) {
+    return { kind: "reused", invitation };
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const fullInviteUrl = `${appUrl}/register?invite=${rawToken}`;
@@ -272,6 +290,7 @@ export async function createStaffInvitation(
   });
 
   return {
+    kind: "created",
     invitation,
     rawToken,
     inviteUrl: `/register?invite=${rawToken}`,

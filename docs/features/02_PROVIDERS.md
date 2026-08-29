@@ -97,6 +97,32 @@ Owner-authorized, expiring, single-use invitations for Shop Staff onboarding:
 - `accepted_by_user_id`
 - `revoked_at`
 
+Invitation policy (issue #43):
+
+- **Active pending** invitation = `accepted_at IS NULL` **and** `revoked_at IS
+NULL` and `expires_at > now()`.
+- **Reuse**: an active pending invitation per `(provider_id, email)` is
+  reused, not duplicated. Retries and double-clicks return the existing
+  invitation (`reused = true`) with its original credential; no new link or
+  email is emitted.
+- **Recipient eligibility**: an invitation cannot be created (or reused) for
+  an email whose account already holds an active `provider_memberships`
+  membership — such a link could never be accepted. Re-inviting a former Staff
+  member becomes valid again after the Owner offboards them
+  (`remove_staff_member`), which removes the membership. Eligibility rechecks
+  on create serialize under a recipient-email advisory lock shared by all
+  membership-establishing paths (`create_staff_invitation`,
+  `accept_staff_invitation`, and `create_provider_with_owner` — the composite
+  `create_provider_with_owner_and_modes` delegates to the latter), taken in
+  consistent order (recipient-email lock, then per-User lock).
+- **Settlement on membership**: the one-membership rule is per User across
+  Providers. Once the recipient holds any active membership, all other
+  currently-active pending invitations for the same normalized email are
+  superseded across **all** Providers — acceptance and Owner onboarding both
+  settle globally — so a different-Provider invitation held while the
+  recipient was eligible stops resolving. Same-email invitations across Shops
+  remain independent only while the recipient has no membership.
+
 ### `provider_service_modes`
 
 Repeating Provider-owned operating configuration:
@@ -215,6 +241,26 @@ browser-supplied `providerId`, role, or user ID for these mutations.
 16. Only an `OWNER` can remove a same-Provider `STAFF` membership; OWNER
     targets and cross-Provider targets are never removable through Staff
     offboarding.
+17. At most one active pending Staff invitation exists per `(provider_id,
+  normalized email)`: `create_staff_invitation` reuses an existing active
+    pending invitation (no duplicate credential, no regenerated token) rather
+    than minting a second simultaneously valid link. A recipient who already
+    holds an active membership is ineligible to be invited; the eligibility
+    check serializes under a shared recipient-email advisory lock (followed by
+    the per-User lock) that `accept_staff_invitation` and
+    `create_provider_with_owner` (`create_provider_with_owner_and_modes`
+    delegates to it) also take to establish memberships, so a create/accept
+    race never leaves an unusable active invitation even if the recipient's
+    Auth User is created mid-create or the create is issued by another Shop.
+    Because the one-membership rule is per User across Providers, once any
+    member is joined every other currently-active pending invitation for the
+    normalized email is superseded across Providers (acceptance and Owner
+    onboarding settle globally); cross-Shop invitations stay independent only
+    while the recipient has no membership. Legacy duplicates from before
+    this policy are reconciled to the earliest currently-valid link per Shop +
+    email (expired rows stay untouched) by the migration (and by the
+    service-role-only `reconcile_staff_invitation_duplicates()` RPC);
+    superseded links stop resolving without ever exposing a raw credential.
 
 ## Testing expectations
 
@@ -225,6 +271,12 @@ Test:
 - valid Staff invitation creates exactly one `STAFF` membership atomically;
 - expired, revoked, or consumed invitations are rejected;
 - Staff cannot join a Provider without a valid invitation;
+- retries and concurrent duplicate invites for the same Shop + email produce
+  at most one active pending invitation (reuse policy);
+- an active member's email cannot be re-invited, but is eligible again after
+  offboarding;
+- accepting an invitation supersedes sibling active pending invitations;
+- legacy duplicate active invitations reconcile to a single valid link;
 - OWNER removes a same-Provider STAFF and the removed member loses access;
 - STAFF cannot remove members; OWNER rows cannot be removed through offboarding;
 - cross-Provider removal attempts are neutral and non-destructive;

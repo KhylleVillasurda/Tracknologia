@@ -38,8 +38,9 @@ import {
   getPublicProviderProfile,
   removeStaffMemberRecord as mockedRemoveStaffMemberRecord,
 } from "./persistence";
-import { removeStaffMember } from "./commands";
+import { removeStaffMember, createStaffInvitation } from "./commands";
 import { requireProviderRole } from "@/features/auth";
+import { sendStaffInviteEmail } from "@/lib/email/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // The unmocked original is used directly by persistence-behavior tests below,
@@ -49,6 +50,7 @@ const { removeStaffMemberRecord: realRemoveStaffMemberRecord } =
 
 const mockRequireProviderRole = vi.mocked(requireProviderRole);
 const mockRemoveStaffMemberRecord = vi.mocked(mockedRemoveStaffMemberRecord);
+const mockSendStaffInviteEmail = vi.mocked(sendStaffInviteEmail);
 
 function ownerContext() {
   return {
@@ -452,22 +454,58 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     });
   });
 
-  it("insertStaffInvitationRecord calls create_staff_invitation RPC with parameters", async () => {
+  it("insertStaffInvitationRecord calls create_staff_invitation RPC and reports whether it reused an active invite", async () => {
     const mockClient = createMockSupabase({});
-    const invitation = await insertStaffInvitationRecord(mockClient, {
-      providerId: "prov-123",
-      invitedByUserId: "user-owner",
-      email: "tech@shop.com",
-      tokenHash:
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    });
+    const { invitation, reused } = await insertStaffInvitationRecord(
+      mockClient,
+      {
+        providerId: "prov-123",
+        invitedByUserId: "user-owner",
+        email: "tech@shop.com",
+        tokenHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      },
+    );
 
     expect(invitation.email).toBe("tech@shop.com");
+    expect(invitation.id).toBe("inv-new-123");
+    expect(reused).toBe(false);
     expect(mockClient.rpc).toHaveBeenCalledWith("create_staff_invitation", {
       p_email: "tech@shop.com",
       p_token_hash:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     });
+  });
+
+  it("insertStaffInvitationRecord maps a reused active invite without a new row", async () => {
+    const mockClient = createMockSupabase({
+      rpcData: [
+        {
+          invitation_id: "inv-existing-1",
+          provider_id: "prov-123",
+          email: "tech@shop.com",
+          role: "STAFF",
+          created_at: "2026-08-20T00:00:00Z",
+          expires_at: "2026-08-27T00:00:00Z",
+          reused: true,
+        },
+      ],
+    });
+
+    const { invitation, reused } = await insertStaffInvitationRecord(
+      mockClient,
+      {
+        providerId: "prov-123",
+        invitedByUserId: "user-owner",
+        email: "tech@shop.com",
+        tokenHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      },
+    );
+
+    expect(reused).toBe(true);
+    expect(invitation.id).toBe("inv-existing-1");
+    expect(invitation.email).toBe("tech@shop.com");
   });
 
   it("listTeamMembers combines provider_memberships and canonical provider_user_profiles", async () => {
@@ -571,5 +609,73 @@ describe("Providers Module — removeStaffMember feature interface", () => {
     await expect(removeStaffMember({ membershipId })).resolves.toEqual({
       removed: false,
     });
+  });
+});
+
+describe("Providers Module — createStaffInvitation duplicate policy", () => {
+  beforeEach(() => {
+    mockRequireProviderRole.mockReset();
+    mockSendStaffInviteEmail.mockReset();
+  });
+
+  it("reuses an existing active pending invite without issuing a credential or email", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    const mockClient = createMockSupabase({
+      rpcData: [
+        {
+          invitation_id: "inv-existing-1",
+          provider_id: "prov-shop-1",
+          email: "tech@shop.com",
+          role: "STAFF",
+          created_at: "2026-08-20T00:00:00Z",
+          expires_at: "2026-08-27T00:00:00Z",
+          reused: true,
+        },
+      ],
+    });
+
+    const result = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    expect(result.kind).toBe("reused");
+    if (result.kind === "reused") {
+      expect(result.invitation.id).toBe("inv-existing-1");
+    }
+    expect(mockSendStaffInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("creates a new invitation and emails a fresh credential when none is active", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockSendStaffInviteEmail.mockResolvedValue({ success: true });
+    const mockClient = createMockSupabase({});
+
+    const result = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    expect(result.kind).toBe("created");
+    if (result.kind === "created") {
+      expect(result.rawToken).toMatch(/^inv_[a-f0-9]{48}$/);
+      expect(result.inviteUrl).toBe(`/register?invite=${result.rawToken}`);
+      expect(result.emailDeliverySuccess).toBe(true);
+    }
+    expect(mockSendStaffInviteEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendStaffInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "tech@shop.com" }),
+    );
+  });
+
+  it("rejects non-OWNER callers before persistence", async () => {
+    mockRequireProviderRole.mockRejectedValue(
+      new Error("UNAUTHORIZED_ROLE: OWNER role is required"),
+    );
+
+    await expect(
+      createStaffInvitation({ email: "tech@shop.com" }),
+    ).rejects.toThrow(/UNAUTHORIZED_ROLE/);
+    expect(mockSendStaffInviteEmail).not.toHaveBeenCalled();
   });
 });

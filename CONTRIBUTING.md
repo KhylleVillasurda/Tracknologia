@@ -51,7 +51,7 @@ Keep commits coherent. Avoid combining unrelated formatting, refactors and featu
 
 ## Database changes
 
-Accepted/shared migrations are forward-only. Never mutate a shared database without a version-controlled migration in `supabase/migrations/`. Before production, rehearse both paths: an empty database replaying the full migration history, and a release-like database applying only pending migrations.
+Accepted/shared migrations are forward-only. Never mutate a shared database without a version-controlled migration in `supabase/migrations/`. Before production, rehearse both paths: an empty database replaying the full migration history, and a release-like database applying only pending migrations. When a branch adds pending migrations, run the automated upgrade rehearsal with `pnpm rehearse:migrations` (scratch lab, base-only state, apply-pending-only, then the DB integration suite).
 
 ## Required checks
 

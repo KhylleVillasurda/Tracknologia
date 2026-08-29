@@ -258,4 +258,12 @@ supabase db reset
 
 `pnpm test:db` targets `tests/integration/db.test.ts` and must run against a real local Supabase instance. `pnpm db:reset` is the package-script equivalent of `supabase db reset`.
 
+When a branch adds pending migrations, run the release-like upgrade rehearsal before pushing:
+
+```text
+pnpm rehearse:migrations
+```
+
+`scripts/rehearse-pending-migrations.sh` boots a scratch Supabase lab on offset ports, applies only the shared (base) migration history, then applies exactly the branch's pending migrations (`supabase db push --local` on the lab) and runs the full `db.test.ts` suite against the upgraded lab. It fails if any already-shared migration was edited (forward-only enforcement). "Rehearsal B" evidence for the release plan.
+
 Keep `pnpm-lock.yaml` committed to ensure dependency resolution consistency.
