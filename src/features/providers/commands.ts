@@ -233,8 +233,7 @@ export interface ReusedStaffInvitationResult {
 }
 
 export type CreateStaffInvitationResult =
-  | CreatedStaffInvitationResult
-  | ReusedStaffInvitationResult;
+  CreatedStaffInvitationResult | ReusedStaffInvitationResult;
 
 /**
  * Creates a secure staff invitation for a Shop Provider.

@@ -22,6 +22,7 @@ Database
 The application centralizes runtime environment parsing in `src/lib/config/server.ts`.
 
 Key invariants:
+
 - **Central Seam**: Server environment validation is decoupled from route invocation and executed on Node.js startup via `src/instrumentation.ts` when `APP_ENV=production` or `APP_ENV=staging`.
 - **Fail-Fast**: Production configurations missing required secrets (`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `PUBLIC_ABUSE_HMAC_SECRET`, `PUBLIC_ABUSE_TRUSTED_PROXY_SECRET`) or with invalid app origins fail immediately at boot.
 - **Forbidden Ingress Bypasses**: `PUBLIC_ABUSE_SHARED_DEV_BUCKET=true` and `NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=false` are explicitly rejected in production to prevent silent security degradation.

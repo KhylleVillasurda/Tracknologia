@@ -93,6 +93,7 @@ so staging must configure the same ingress contract as production.
 The application validates server configuration centrally via `src/lib/config/server.ts`.
 
 In `production` (when `APP_ENV=production` or `APP_ENV=staging`):
+
 - `NEXT_PUBLIC_APP_URL` must use `https://` and cannot use `localhost` or loopback IP addresses.
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are mandatory.
 - `RESEND_API_KEY` is mandatory and `RESEND_FROM_EMAIL` cannot use default `onboarding@resend.dev`.
