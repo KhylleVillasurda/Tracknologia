@@ -52,7 +52,7 @@ Required values:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<anon-or-publishable-key>
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 PUBLIC_ABUSE_HMAC_SECRET=<at-least-32-random-characters>
@@ -88,6 +88,16 @@ ignored, so spoofed values cannot evade the limit. Any environment without
 that opt-in requires valid trusted-ingress proof and fails closed otherwise,
 so staging must configure the same ingress contract as production.
 
+### Production Configuration Seam & Startup Validation
+
+The application validates server configuration centrally via `src/lib/config/server.ts`.
+
+In `production` (when `APP_ENV=production` or `APP_ENV=staging`):
+- `NEXT_PUBLIC_APP_URL` must use `https://` and cannot use `localhost` or loopback IP addresses.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are mandatory.
+- `RESEND_API_KEY` is mandatory and `RESEND_FROM_EMAIL` cannot use default `onboarding@resend.dev`.
+- `PUBLIC_ABUSE_SHARED_DEV_BUCKET=true` and `NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=false` throw validation errors at startup via Next.js `instrumentation.ts`.
+
 `.env.local` must be ignored by Git.
 
 ## Start the application
@@ -121,19 +131,19 @@ docker compose down
 Install repository dependencies from the lockfile:
 
 ```bash
-docker compose run --rm web npm ci
+pnpm install
 ```
 
 Add a runtime dependency:
 
 ```bash
-docker compose run --rm web npm install <package>
+pnpm add <package>
 ```
 
 Add a development dependency:
 
 ```bash
-docker compose run --rm web npm install -D <package>
+pnpm add -D <package>
 ```
 
 Commit both `package.json` and `pnpm-lock.yaml` when dependencies change.
@@ -141,10 +151,12 @@ Commit both `package.json` and `pnpm-lock.yaml` when dependencies change.
 ## Quality commands
 
 ```bash
-docker compose run --rm web npm run lint
-docker compose run --rm web npm test
-docker compose run --rm web npx playwright test
-docker compose run --rm web npm run build
+pnpm format
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test:run
+pnpm build
 ```
 
 ## Supabase & Database Migrations
