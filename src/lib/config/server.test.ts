@@ -32,6 +32,24 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
       );
     });
 
+    it.each(["local", "development", "test"])(
+      "does not let APP_ENV=%s downgrade a production Node process",
+      (appEnv) => {
+        expect(
+          resolveRuntimeEnvironment({
+            NODE_ENV: "production",
+            APP_ENV: appEnv,
+          }),
+        ).toBe("production");
+      },
+    );
+
+    it("does not let an explicit local override downgrade a production Node process", () => {
+      expect(
+        resolveRuntimeEnvironment({ NODE_ENV: "production" }, "local"),
+      ).toBe("production");
+    });
+
     it("resolves test when NODE_ENV is test", () => {
       expect(resolveRuntimeEnvironment({ NODE_ENV: "test" })).toBe("test");
     });
@@ -109,6 +127,21 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
       ).toThrow(
         "NEXT_PUBLIC_APP_URL cannot be localhost or a loopback address",
       );
+    });
+
+    it("fails closed through normal config reads when production signals conflict", () => {
+      expect(() =>
+        parseServerConfig({
+          ...VALID_PROD_ENV,
+          APP_ENV: "local",
+          NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+        }),
+      ).toThrow("NEXT_PUBLIC_APP_URL must use HTTPS in production");
+
+      expect(
+        parseServerConfig({ ...VALID_PROD_ENV, APP_ENV: "development" })
+          .runtime,
+      ).toBe("production");
     });
 
     it("fails when Supabase public or service credentials are missing", () => {
@@ -232,6 +265,18 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
       expect(config.runtime).toBe("local");
       expect(config.app.origin).toBe("http://localhost:3000");
       expect(config.resend.isDevLogger).toBe(true);
+    });
+
+    it("keeps explicit local and test execution available outside production", () => {
+      expect(
+        resolveRuntimeEnvironment({
+          NODE_ENV: "development",
+          APP_ENV: "local",
+        }),
+      ).toBe("local");
+      expect(
+        resolveRuntimeEnvironment({ NODE_ENV: "test", APP_ENV: "test" }),
+      ).toBe("test");
     });
 
     it("allows dev bucket shortcut and email confirmation bypass in local mode", () => {

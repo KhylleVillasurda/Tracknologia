@@ -32,15 +32,21 @@ export function resolveRuntimeEnvironment(
   env: Record<string, string | undefined> = process.env,
   explicitRuntime?: RuntimeEnvironment,
 ): RuntimeEnvironment {
-  if (explicitRuntime) {
-    return explicitRuntime;
-  }
   const appEnv = env.APP_ENV?.toLowerCase().trim();
   const nodeEnv = env.NODE_ENV?.toLowerCase().trim();
 
-  if (appEnv === "production" || appEnv === "staging") {
+  if (
+    nodeEnv === "production" ||
+    appEnv === "production" ||
+    appEnv === "staging"
+  ) {
     return "production";
   }
+
+  if (explicitRuntime) {
+    return explicitRuntime;
+  }
+
   if (appEnv === "local" || appEnv === "development") {
     return "local";
   }
@@ -50,18 +56,6 @@ export function resolveRuntimeEnvironment(
 
   if (nodeEnv === "test") {
     return "test";
-  }
-
-  if (nodeEnv === "production") {
-    const rawAppUrl = env.NEXT_PUBLIC_APP_URL?.trim() || "";
-    if (
-      rawAppUrl.startsWith("http:") ||
-      rawAppUrl.includes("localhost") ||
-      rawAppUrl.includes("127.0.0.1")
-    ) {
-      return "local";
-    }
-    return "production";
   }
 
   return "local";

@@ -4,7 +4,9 @@ import {
   createStaffInvitation,
   removeStaffMember,
   revokeStaffInvitation,
+  StaffInvitationError,
 } from "@/features/providers";
+import { AuthError } from "@/features/auth";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -60,11 +62,33 @@ export async function inviteStaffAction(
       emailDeliveryFailed: false,
     };
   } catch (error) {
+    console.error("Staff invitation creation failed", error);
+
+    if (error instanceof StaffInvitationError) {
+      if (error.code === "INVALID_INPUT") {
+        return { error: error.message, fieldErrors: { email: error.message } };
+      }
+
+      if (
+        error.code === "UNAVAILABLE_FOR_PROVIDER" ||
+        error.code === "RECIPIENT_INELIGIBLE"
+      ) {
+        return { error: error.message };
+      }
+    }
+
+    if (error instanceof AuthError) {
+      if (error.code === "UNAUTHENTICATED") {
+        return { error: "Please sign in before inviting staff" };
+      }
+      if (error.code === "UNAUTHORIZED_ROLE") {
+        return { error: "Only Shop Owners can invite staff" };
+      }
+    }
+
     return {
       error:
-        error instanceof Error
-          ? error.message
-          : "Failed to create staff invitation",
+        "Staff invitations are temporarily unavailable. Please try again later.",
     };
   }
 }

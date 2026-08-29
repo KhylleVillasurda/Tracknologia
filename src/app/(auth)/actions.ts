@@ -10,6 +10,7 @@ import {
   requestPasswordReset,
   resetPassword,
   signOutUser,
+  AuthError,
 } from "@/features/auth";
 import { getAppOrigin, getServerConfig } from "@/lib/config/server";
 import { getSafeInternalRedirectUrl } from "@/lib/utils";
@@ -97,8 +98,24 @@ export async function registerAction(
       emailRedirectTo,
     });
   } catch (err: unknown) {
+    console.error("Account registration failed", err);
+
+    const authError =
+      err instanceof AuthError ||
+      (err instanceof Error && err.name === "AuthError")
+        ? (err as AuthError)
+        : null;
+    if (
+      authError &&
+      (authError.code === "REGISTRATION_CONFLICT" ||
+        authError.code === "EMAIL_DELIVERY_FAILURE")
+    ) {
+      return { error: authError.message };
+    }
+
     return {
-      error: err instanceof Error ? err.message : "Failed to register account",
+      error:
+        "Unable to create your account at this time. Please try again later.",
     };
   }
 

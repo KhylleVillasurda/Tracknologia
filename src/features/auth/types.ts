@@ -34,7 +34,9 @@ export type AuthErrorCode =
   | "AMBIGUOUS_PROVIDER_CONTEXT"
   | "UNAUTHORIZED_ROLE"
   | "INFRASTRUCTURE_FAILURE"
-  | "INVALID_CREDENTIALS";
+  | "INVALID_CREDENTIALS"
+  | "REGISTRATION_CONFLICT"
+  | "EMAIL_DELIVERY_FAILURE";
 
 export class AuthError extends Error {
   constructor(

@@ -4,7 +4,6 @@ on:
   pull_request:
     branches:
       - "feature/**"
-      - "issue/**"
       - staging
       - master
     types:
@@ -33,23 +32,23 @@ jobs:
 
           # Developer/fork branch names are intentionally unrestricted.
           # Any branch may submit a PR into a protected feature integration branch.
-          if [[ "$BASE_BRANCH" == feature/* ]] || [[ "$BASE_BRANCH" == issue/* ]]; then
-            echo "Valid contributor PR into feature/issue integration branch."
+          if [[ "$BASE_BRANCH" == feature/* ]]; then
+            echo "Valid contributor PR into feature integration branch."
             exit 0
           fi
 
           # Only approved upstream integration branches may enter staging.
           if [ "$BASE_BRANCH" = "staging" ]; then
             case "$HEAD_BRANCH" in
-              feature/[0-9][0-9]/*|issue/[0-9][0-9]/*|issue/*)
-                echo "Valid feature or issue promotion into staging."
+              feature/[0-9][0-9]/*)
+                echo "Valid feature promotion into staging."
                 ;;
               fix/*|hotfix/*|chore/*|dependabot/*)
                 echo "Valid maintenance promotion into staging."
                 ;;
               *)
                 echo "::error::Invalid source branch for staging."
-                echo "Expected feature/NN/name, issue/NN/name, fix/*, hotfix/*, chore/*, or dependabot/*."
+                echo "Expected feature/NN/name, fix/*, hotfix/*, chore/*, or dependabot/*."
                 exit 1
                 ;;
             esac

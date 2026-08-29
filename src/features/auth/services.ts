@@ -2,6 +2,7 @@ import "server-only";
 import { getServerConfig } from "@/lib/config/server";
 import { createClient } from "@/lib/supabase/server";
 import type { LoginInput, RegisterInput } from "./schemas";
+import { AuthError } from "./types";
 
 export async function loginWithPassword(credentials: LoginInput) {
   const supabase = await createClient();
@@ -39,6 +40,15 @@ export async function registerProviderAccount(
   });
 
   if (error) {
+    const errorCode = "code" in error ? error.code : undefined;
+    if (errorCode === "user_already_exists" || errorCode === "email_exists") {
+      throw new AuthError(
+        "An account already exists for this email address.",
+        "REGISTRATION_CONFLICT",
+        error,
+      );
+    }
+
     // If Supabase encountered an email delivery failure (e.g. SMTP config / rate limit), check if user was created and can sign in
     const isEmailError =
       error.message.includes("confirmation email") ||
@@ -61,13 +71,24 @@ export async function registerProviderAccount(
       }
 
       if (config.runtime === "production") {
-        throw new Error(
+        throw new AuthError(
           "Confirmation email delivery failed. Please try again later or contact support.",
+          "EMAIL_DELIVERY_FAILURE",
+          error,
         );
       }
 
       throw new Error(
         "Email delivery failed. If using Custom SMTP, verify your SMTP credentials (or Google App Password). To skip email verification in development, disable 'Confirm email' in Supabase -> Authentication -> Email.",
+      );
+    }
+
+    if (config.runtime === "production") {
+      console.error("Supabase registration failed", error);
+      throw new AuthError(
+        "Unable to create your account at this time. Please try again later.",
+        "INFRASTRUCTURE_FAILURE",
+        error,
       );
     }
 

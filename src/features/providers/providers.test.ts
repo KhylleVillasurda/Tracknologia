@@ -38,7 +38,11 @@ import {
   getPublicProviderProfile,
   removeStaffMemberRecord as mockedRemoveStaffMemberRecord,
 } from "./persistence";
-import { removeStaffMember, createStaffInvitation } from "./commands";
+import {
+  removeStaffMember,
+  createStaffInvitation,
+  StaffInvitationError,
+} from "./commands";
 import { requireProviderRole } from "@/features/auth";
 import { sendStaffInviteEmail } from "@/lib/email/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -79,6 +83,7 @@ const membershipId = "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b";
 
 function createMockSupabase(options: {
   rpcData?: unknown;
+  rpcDataSequence?: unknown[];
   rpcError?: Error | null;
   tableData?: unknown;
   tableError?: Error | null;
@@ -114,16 +119,17 @@ function createMockSupabase(options: {
       }
       if (fn === "create_staff_invitation") {
         return Promise.resolve({
-          data: options.rpcData ?? [
-            {
-              invitation_id: "inv-new-123",
-              provider_id: "prov-123",
-              email: "tech@shop.com",
-              role: "STAFF",
-              created_at: "2026-08-20T00:00:00Z",
-              expires_at: "2026-08-27T00:00:00Z",
-            },
-          ],
+          data: options.rpcDataSequence?.shift() ??
+            options.rpcData ?? [
+              {
+                invitation_id: "inv-new-123",
+                provider_id: "prov-123",
+                email: "tech@shop.com",
+                role: "STAFF",
+                created_at: "2026-08-20T00:00:00Z",
+                expires_at: "2026-08-27T00:00:00Z",
+              },
+            ],
           error: null,
         });
       }
@@ -698,6 +704,95 @@ describe("Providers Module — createStaffInvitation duplicate policy", () => {
     if (result.kind === "created") {
       expect(result.emailDeliverySuccess).toBe(false);
     }
+  });
+
+  it("preserves a failed-delivery invitation and reuses it on retry without another email", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockSendStaffInviteEmail.mockResolvedValue({
+      success: false,
+      reason: "provider_error",
+    });
+    const mockClient = createMockSupabase({
+      rpcDataSequence: [
+        [
+          {
+            invitation_id: "inv-preserved-1",
+            provider_id: "prov-shop-1",
+            email: "tech@shop.com",
+            role: "STAFF",
+            created_at: "2026-08-20T00:00:00Z",
+            expires_at: "2026-08-27T00:00:00Z",
+            reused: false,
+          },
+        ],
+        [
+          {
+            invitation_id: "inv-preserved-1",
+            provider_id: "prov-shop-1",
+            email: "tech@shop.com",
+            role: "STAFF",
+            created_at: "2026-08-20T00:00:00Z",
+            expires_at: "2026-08-27T00:00:00Z",
+            reused: true,
+          },
+        ],
+      ],
+    });
+    const rpc = vi.mocked(mockClient.rpc);
+
+    const first = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+    const retry = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    expect(first).toMatchObject({
+      kind: "created",
+      invitation: { id: "inv-preserved-1" },
+      emailDeliverySuccess: false,
+    });
+    expect(retry).toEqual(
+      expect.objectContaining({
+        kind: "reused",
+        invitation: expect.objectContaining({ id: "inv-preserved-1" }),
+      }),
+    );
+    expect(mockSendStaffInviteEmail).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("translates invitation persistence failures while retaining the diagnostic cause", async () => {
+    const sentinel = "SUPABASE_INTERNAL_SENTINEL_7a4c";
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    const mockClient = createMockSupabase({
+      rpcError: new Error(sentinel),
+    });
+
+    const promise = createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    await expect(promise).rejects.toMatchObject({
+      name: "StaffInvitationError",
+      code: "TEMPORARY_FAILURE",
+      message:
+        "Staff invitations are temporarily unavailable. Please try again later.",
+    });
+    await expect(promise).rejects.toBeInstanceOf(StaffInvitationError);
+    await expect(promise).rejects.not.toThrow(sentinel);
+
+    try {
+      await promise;
+    } catch (error) {
+      expect((error as StaffInvitationError).cause).toEqual(
+        expect.objectContaining({ message: expect.stringContaining(sentinel) }),
+      );
+    }
+    expect(mockSendStaffInviteEmail).not.toHaveBeenCalled();
   });
 
   it("rejects non-OWNER callers before persistence", async () => {

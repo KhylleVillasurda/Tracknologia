@@ -65,6 +65,11 @@ jobs:
         run: pnpm test:run
 
       - name: Build application
+        env:
+          NEXT_PUBLIC_APP_URL: https://ci-build.invalid
+          SUPABASE_SERVICE_ROLE_KEY: ci-build-only-service-role-placeholder
+          RESEND_API_KEY: re_ci_build_only_placeholder
+          RESEND_FROM_EMAIL: Tracknologia <noreply@ci-build.invalid>
         run: pnpm build
 
   db-integration:
