@@ -32,6 +32,8 @@ jobs:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+      PUBLIC_ABUSE_HMAC_SECRET: ci-build-only-hmac-placeholder-32-chars
+      PUBLIC_ABUSE_TRUSTED_PROXY_SECRET: ci-build-only-proxy-placeholder-32-chars
 
     steps:
       - name: Checkout repository

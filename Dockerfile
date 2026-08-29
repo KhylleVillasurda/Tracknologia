@@ -63,6 +63,8 @@ ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
 ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
 
 RUN --mount=type=cache,target=/app/.next/cache \
+    PUBLIC_ABUSE_HMAC_SECRET=build-only-hmac-placeholder-32-chars \
+    PUBLIC_ABUSE_TRUSTED_PROXY_SECRET=build-only-proxy-placeholder-32-chars \
     pnpm build
 
 # ------------------------------------------------------------
