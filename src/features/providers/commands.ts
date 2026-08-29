@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireProviderRole, requireUser } from "@/features/auth";
+import { getAppOrigin } from "@/lib/config/server";
 import { sendStaffInviteEmail } from "@/lib/email/client";
 import { createClient } from "@/lib/supabase/server";
 
@@ -232,7 +233,8 @@ export interface ReusedStaffInvitationResult {
 }
 
 export type CreateStaffInvitationResult =
-  CreatedStaffInvitationResult | ReusedStaffInvitationResult;
+  | CreatedStaffInvitationResult
+  | ReusedStaffInvitationResult;
 
 /**
  * Creates a secure staff invitation for a Shop Provider.
@@ -278,8 +280,8 @@ export async function createStaffInvitation(
     return { kind: "reused", invitation };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const fullInviteUrl = `${appUrl}/register?invite=${rawToken}`;
+  const appOrigin = getAppOrigin();
+  const fullInviteUrl = `${appOrigin}/register?invite=${rawToken}`;
 
   // 5. Send invitation email
   const emailResult = await sendStaffInviteEmail({

@@ -52,6 +52,19 @@ const mockRequireProviderRole = vi.mocked(requireProviderRole);
 const mockRemoveStaffMemberRecord = vi.mocked(mockedRemoveStaffMemberRecord);
 const mockSendStaffInviteEmail = vi.mocked(sendStaffInviteEmail);
 
+beforeEach(() => {
+  process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY =
+    "sb_pub_test_123456789012345678901234567890";
+  process.env.SUPABASE_SERVICE_ROLE_KEY =
+    "sb_service_test_123456789012345678901234567890";
+  process.env.PUBLIC_ABUSE_HMAC_SECRET =
+    "test_hmac_secret_32_chars_minimum_length_12345";
+  process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET =
+    "test_proxy_secret_32_chars_minimum_length_67890";
+});
+
 function ownerContext() {
   return {
     userId: "user-owner-1",
@@ -666,6 +679,25 @@ describe("Providers Module — createStaffInvitation duplicate policy", () => {
     expect(mockSendStaffInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ to: "tech@shop.com" }),
     );
+  });
+
+  it("reports emailDeliverySuccess: false when email delivery fails", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockSendStaffInviteEmail.mockResolvedValue({
+      success: false,
+      reason: "provider_error",
+    });
+    const mockClient = createMockSupabase({});
+
+    const result = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    expect(result.kind).toBe("created");
+    if (result.kind === "created") {
+      expect(result.emailDeliverySuccess).toBe(false);
+    }
   });
 
   it("rejects non-OWNER callers before persistence", async () => {
