@@ -56,8 +56,11 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 PUBLIC_ABUSE_HMAC_SECRET=<at-least-32-random-characters>
-PUBLIC_ABUSE_TRUSTED_PROXY_SECRET=<different-at-least-32-random-characters>
 ```
+
+`PUBLIC_ABUSE_TRUSTED_PROXY_SECRET` is also required as a different,
+at-least-32-character random value when trusted ingress is in use. Local
+development may leave it blank when `PUBLIC_ABUSE_SHARED_DEV_BUCKET=true`.
 
 `SUPABASE_SERVICE_ROLE_KEY` is server-only. It is required because public,
 accountless operations (Tracking lookup, Tracking observation, Repair Request

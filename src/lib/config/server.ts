@@ -174,30 +174,35 @@ export function parseServerConfig(
   const hmacSecret = env.PUBLIC_ABUSE_HMAC_SECRET?.trim() || "";
   const trustedProxySecret =
     env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET?.trim() || "";
+  const sharedDevBucketRaw =
+    env.PUBLIC_ABUSE_SHARED_DEV_BUCKET?.trim().toLowerCase();
+  const sharedDevBucket = sharedDevBucketRaw === "true";
 
   if (hmacSecret.length < 32) {
     throw new Error(
       "Configuration error: PUBLIC_ABUSE_HMAC_SECRET must be at least 32 characters long.",
     );
   }
-  if (trustedProxySecret.length < 32) {
+  const requiresTrustedProxySecret =
+    runtime === "production" || !sharedDevBucket;
+  if (requiresTrustedProxySecret && trustedProxySecret.length < 32) {
     throw new Error(
       "Configuration error: PUBLIC_ABUSE_TRUSTED_PROXY_SECRET must be at least 32 characters long.",
     );
   }
-  if (hmacSecret === trustedProxySecret) {
+  if (
+    requiresTrustedProxySecret &&
+    trustedProxySecret &&
+    hmacSecret === trustedProxySecret
+  ) {
     throw new Error(
       "Configuration error: PUBLIC_ABUSE_HMAC_SECRET and PUBLIC_ABUSE_TRUSTED_PROXY_SECRET cannot be identical.",
     );
   }
 
-  const sharedDevBucketRaw =
-    env.PUBLIC_ABUSE_SHARED_DEV_BUCKET?.trim().toLowerCase();
-  const sharedDevBucket = sharedDevBucketRaw === "true";
-
-  if (runtime === "production" && sharedDevBucket) {
+  if (runtime !== "local" && sharedDevBucket) {
     throw new Error(
-      "Configuration error: PUBLIC_ABUSE_SHARED_DEV_BUCKET cannot be enabled in production.",
+      "Configuration error: PUBLIC_ABUSE_SHARED_DEV_BUCKET can only be enabled in local runtime.",
     );
   }
 

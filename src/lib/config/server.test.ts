@@ -208,6 +208,15 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
         "PUBLIC_ABUSE_TRUSTED_PROXY_SECRET must be at least 32 characters long",
       );
 
+      expect(() =>
+        parseServerConfig(
+          { ...VALID_PROD_ENV, PUBLIC_ABUSE_TRUSTED_PROXY_SECRET: "" },
+          "production",
+        ),
+      ).toThrow(
+        "PUBLIC_ABUSE_TRUSTED_PROXY_SECRET must be at least 32 characters long",
+      );
+
       const sameSecret = "identical_secret_32_chars_minimum_length_12345";
       expect(() =>
         parseServerConfig(
@@ -230,7 +239,7 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
           "production",
         ),
       ).toThrow(
-        "PUBLIC_ABUSE_SHARED_DEV_BUCKET cannot be enabled in production",
+        "PUBLIC_ABUSE_SHARED_DEV_BUCKET can only be enabled in local runtime",
       );
 
       expect(() =>
@@ -283,6 +292,7 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
       const config = parseServerConfig(
         {
           ...VALID_DEV_ENV,
+          PUBLIC_ABUSE_TRUSTED_PROXY_SECRET: undefined,
           PUBLIC_ABUSE_SHARED_DEV_BUCKET: "true",
           NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION: "false",
         },
@@ -290,6 +300,42 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
       );
       expect(config.publicAbuse.sharedDevBucket).toBe(true);
       expect(config.auth.requireEmailConfirmation).toBe(false);
+    });
+
+    it.each([
+      ["local", undefined],
+      ["local", "short"],
+      ["test", undefined],
+      ["test", "short"],
+    ])(
+      "requires valid trusted proxy proof in %s without the shared bucket shortcut",
+      (runtime, trustedProxySecret) => {
+        expect(() =>
+          parseServerConfig(
+            {
+              ...VALID_DEV_ENV,
+              PUBLIC_ABUSE_TRUSTED_PROXY_SECRET: trustedProxySecret,
+            },
+            runtime as "local" | "test",
+          ),
+        ).toThrow(
+          "PUBLIC_ABUSE_TRUSTED_PROXY_SECRET must be at least 32 characters long",
+        );
+      },
+    );
+
+    it("rejects the shared bucket shortcut in test runtime", () => {
+      expect(() =>
+        parseServerConfig(
+          {
+            ...VALID_DEV_ENV,
+            PUBLIC_ABUSE_SHARED_DEV_BUCKET: "true",
+          },
+          "test",
+        ),
+      ).toThrow(
+        "PUBLIC_ABUSE_SHARED_DEV_BUCKET can only be enabled in local runtime",
+      );
     });
   });
 

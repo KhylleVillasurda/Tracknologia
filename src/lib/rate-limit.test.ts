@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createPublicOperationClient: vi.fn(),
@@ -23,6 +23,7 @@ const PROXY_SECRET = "test-only-proxy-proof-with-at-least-32-characters";
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv("NODE_ENV", "development");
   process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
   process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY =
@@ -37,6 +38,10 @@ beforeEach(() => {
   delete process.env.PUBLIC_ABUSE_REPAIR_REQUEST_MAX;
   delete process.env.PUBLIC_ABUSE_REPAIR_REQUEST_WINDOW_SECONDS;
   mocks.createPublicOperationClient.mockResolvedValue({ rpc: mocks.rpc });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("durable public-operation abuse control", () => {
