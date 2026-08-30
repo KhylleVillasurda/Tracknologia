@@ -10,30 +10,17 @@ import {
   requestPasswordReset,
   resetPassword,
   signOutUser,
+  AuthError,
 } from "@/features/auth";
+import { getAppOrigin, getServerConfig } from "@/lib/config/server";
 import { getSafeInternalRedirectUrl } from "@/lib/utils";
 import { redirect } from "next/navigation";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 
 export interface ActionState {
   error?: string;
   success?: string;
   fieldErrors?: Record<string, string>;
-}
-
-async function resolveAppOrigin(): Promise<string> {
-  if (
-    process.env.NEXT_PUBLIC_APP_URL &&
-    process.env.NEXT_PUBLIC_APP_URL.trim() !== ""
-  ) {
-    return process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/$/, "");
-  }
-  const headersList = await headers();
-  const host = headersList.get("host") || "localhost:3000";
-  const protocol =
-    headersList.get("x-forwarded-proto") ||
-    (host.includes("localhost") ? "http" : "https");
-  return `${protocol}://${host}`;
 }
 
 export async function loginAction(
@@ -101,7 +88,7 @@ export async function registerAction(
     });
   }
 
-  const origin = await resolveAppOrigin();
+  const origin = getAppOrigin();
   const emailRedirectTo = `${origin}/auth/callback?next=/confirmed`;
 
   let signUpResult;
@@ -111,8 +98,24 @@ export async function registerAction(
       emailRedirectTo,
     });
   } catch (err: unknown) {
+    console.error("Account registration failed", err);
+
+    const authError =
+      err instanceof AuthError ||
+      (err instanceof Error && err.name === "AuthError")
+        ? (err as AuthError)
+        : null;
+    if (
+      authError &&
+      (authError.code === "REGISTRATION_CONFLICT" ||
+        authError.code === "EMAIL_DELIVERY_FAILURE")
+    ) {
+      return { error: authError.message };
+    }
+
     return {
-      error: err instanceof Error ? err.message : "Failed to register account",
+      error:
+        "Unable to create your account at this time. Please try again later.",
     };
   }
 
@@ -122,9 +125,8 @@ export async function registerAction(
   }
 
   // 2. If email confirmation is disabled via dev environment toggle, auto-authenticate
-  const requireEmailConfirmation =
-    process.env.NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION !== "false";
-  if (!requireEmailConfirmation) {
+  const config = getServerConfig();
+  if (!config.auth.requireEmailConfirmation) {
     try {
       await loginWithPassword({
         email: parsed.data.email,
@@ -157,7 +159,7 @@ export async function forgotPasswordAction(
     };
   }
 
-  const origin = await resolveAppOrigin();
+  const origin = getAppOrigin();
   const redirectTo = `${origin}/auth/callback?next=/reset-password`;
 
   try {

@@ -1,11 +1,6 @@
 import "server-only";
 import { Resend } from "resend";
-
-const resendApiKey = process.env.RESEND_API_KEY;
-const defaultFrom =
-  process.env.RESEND_FROM_EMAIL || "Tracknologia <onboarding@resend.dev>";
-
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
+import { getServerConfig } from "@/lib/config/server";
 
 export interface SendEmailParams {
   to: string | string[];
@@ -15,36 +10,37 @@ export interface SendEmailParams {
   from?: string;
 }
 
+export type EmailDeliveryResult =
+  | { success: true; id?: string }
+  | { success: false; reason: "provider_error" | "unavailable" };
+
 export async function sendEmail(
   params: SendEmailParams,
-): Promise<{ success: boolean; id?: string }> {
-  const from = params.from || defaultFrom;
+): Promise<EmailDeliveryResult> {
+  const config = getServerConfig();
+  const from = params.from || config.resend.fromEmail;
 
-  if (!resend) {
-    const isDev =
-      process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
-    if (isDev) {
-      // Development mode fallback: Log email content to terminal for easy testing
-      console.log("----------------------------------------");
-      console.log("[DEV EMAIL LOGGER] (No RESEND_API_KEY configured)");
-      console.log(
-        `To: ${Array.isArray(params.to) ? params.to.join(", ") : params.to}`,
-      );
-      console.log(`From: ${from}`);
-      console.log(`Subject: ${params.subject}`);
-      console.log("----------------------------------------");
-      console.log(params.text || params.html);
-      console.log("----------------------------------------");
-      return { success: true, id: "dev-mock-id" };
-    }
+  if (config.resend.isDevLogger) {
+    console.log("----------------------------------------");
+    console.log("[DEV EMAIL LOGGER] (No RESEND_API_KEY configured)");
+    console.log(
+      `To: ${Array.isArray(params.to) ? params.to.join(", ") : params.to}`,
+    );
+    console.log(`From: ${from}`);
+    console.log(`Subject: ${params.subject}`);
+    console.log("----------------------------------------");
+    return { success: true, id: "dev-mock-id" };
+  }
 
+  if (!config.resend.apiKey) {
     console.error(
       "[Email Error]: RESEND_API_KEY is missing in non-development environment.",
     );
-    return { success: false };
+    return { success: false, reason: "unavailable" };
   }
 
   try {
+    const resend = new Resend(config.resend.apiKey);
     const { data, error } = await resend.emails.send({
       from,
       to: params.to,
@@ -54,14 +50,14 @@ export async function sendEmail(
     });
 
     if (error) {
-      console.error("[Resend Error]:", error);
-      return { success: false };
+      console.error("[Resend Error]: Email delivery failed");
+      return { success: false, reason: "provider_error" };
     }
 
     return { success: true, id: data?.id };
-  } catch (err) {
-    console.error("[Email Exception]:", err);
-    return { success: false };
+  } catch {
+    console.error("[Email Exception]: Email delivery failed");
+    return { success: false, reason: "provider_error" };
   }
 }
 

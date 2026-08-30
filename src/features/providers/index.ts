@@ -12,6 +12,8 @@ export {
   type CreatedStaffInvitationResult,
   type ReusedStaffInvitationResult,
   type CreateStaffInvitationResult,
+  StaffInvitationError,
+  type StaffInvitationErrorCode,
   type RemoveStaffMemberResult,
 } from "./commands";
 

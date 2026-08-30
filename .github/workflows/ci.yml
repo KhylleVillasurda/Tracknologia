@@ -29,8 +29,11 @@ jobs:
     timeout-minutes: 15
 
     env:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+      PUBLIC_ABUSE_HMAC_SECRET: ci-build-only-hmac-placeholder-32-chars
+      PUBLIC_ABUSE_TRUSTED_PROXY_SECRET: ci-build-only-proxy-placeholder-32-chars
 
     steps:
       - name: Checkout repository
@@ -62,6 +65,11 @@ jobs:
         run: pnpm test:run
 
       - name: Build application
+        env:
+          NEXT_PUBLIC_APP_URL: https://ci-build.invalid
+          SUPABASE_SERVICE_ROLE_KEY: ci-build-only-service-role-placeholder
+          RESEND_API_KEY: re_ci_build_only_placeholder
+          RESEND_FROM_EMAIL: Tracknologia <noreply@ci-build.invalid>
         run: pnpm build
 
   db-integration:

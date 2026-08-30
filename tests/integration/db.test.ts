@@ -1447,9 +1447,8 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         ),
       });
       expect(memberReinvite.error).not.toBeNull();
-      expect(memberReinvite.error?.message).toMatch(
-        /active provider membership/,
-      );
+      expect(memberReinvite.error?.code).toBe("P0001");
+      expect(memberReinvite.error?.details).toBe("RECIPIENT_INELIGIBLE");
 
       // After legitimate offboarding the same email becomes eligible again and
       // a new (non-reused) invitation can be created.
@@ -1576,7 +1575,8 @@ describe("PostgreSQL Real Database, RPCs & RLS Integration Suite (AUTH-R28)", ()
         },
       );
       expect(memberCreate.error).not.toBeNull();
-      expect(memberCreate.error?.message).toMatch(/active provider membership/);
+      expect(memberCreate.error?.code).toBe("P0001");
+      expect(memberCreate.error?.details).toBe("RECIPIENT_INELIGIBLE");
 
       const existingInviteToken = hashInvitationToken(
         `inv_${randomUUID()}_${randomUUID()}`,

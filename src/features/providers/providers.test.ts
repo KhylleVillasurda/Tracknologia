@@ -37,8 +37,13 @@ import {
   listTeamMembers,
   getPublicProviderProfile,
   removeStaffMemberRecord as mockedRemoveStaffMemberRecord,
+  StaffInvitationPersistenceError,
 } from "./persistence";
-import { removeStaffMember, createStaffInvitation } from "./commands";
+import {
+  removeStaffMember,
+  createStaffInvitation,
+  StaffInvitationError,
+} from "./commands";
 import { requireProviderRole } from "@/features/auth";
 import { sendStaffInviteEmail } from "@/lib/email/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -51,6 +56,19 @@ const { removeStaffMemberRecord: realRemoveStaffMemberRecord } =
 const mockRequireProviderRole = vi.mocked(requireProviderRole);
 const mockRemoveStaffMemberRecord = vi.mocked(mockedRemoveStaffMemberRecord);
 const mockSendStaffInviteEmail = vi.mocked(sendStaffInviteEmail);
+
+beforeEach(() => {
+  process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY =
+    "sb_pub_test_123456789012345678901234567890";
+  process.env.SUPABASE_SERVICE_ROLE_KEY =
+    "sb_service_test_123456789012345678901234567890";
+  process.env.PUBLIC_ABUSE_HMAC_SECRET =
+    "test_hmac_secret_32_chars_minimum_length_12345";
+  process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET =
+    "test_proxy_secret_32_chars_minimum_length_67890";
+});
 
 function ownerContext() {
   return {
@@ -66,7 +84,8 @@ const membershipId = "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b";
 
 function createMockSupabase(options: {
   rpcData?: unknown;
-  rpcError?: Error | null;
+  rpcDataSequence?: unknown[];
+  rpcError?: unknown;
   tableData?: unknown;
   tableError?: Error | null;
 }) {
@@ -101,16 +120,17 @@ function createMockSupabase(options: {
       }
       if (fn === "create_staff_invitation") {
         return Promise.resolve({
-          data: options.rpcData ?? [
-            {
-              invitation_id: "inv-new-123",
-              provider_id: "prov-123",
-              email: "tech@shop.com",
-              role: "STAFF",
-              created_at: "2026-08-20T00:00:00Z",
-              expires_at: "2026-08-27T00:00:00Z",
-            },
-          ],
+          data: options.rpcDataSequence?.shift() ??
+            options.rpcData ?? [
+              {
+                invitation_id: "inv-new-123",
+                provider_id: "prov-123",
+                email: "tech@shop.com",
+                role: "STAFF",
+                created_at: "2026-08-20T00:00:00Z",
+                expires_at: "2026-08-27T00:00:00Z",
+              },
+            ],
           error: null,
         });
       }
@@ -508,6 +528,41 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     expect(invitation.email).toBe("tech@shop.com");
   });
 
+  it("maps the known recipient-ineligible RPC signal to a typed persistence failure", async () => {
+    const rpcError = {
+      code: "P0001",
+      details: "RECIPIENT_INELIGIBLE",
+      message: "recipient wording supplied by PostgreSQL",
+    };
+    const mockClient = createMockSupabase({ rpcError });
+
+    await expect(
+      insertStaffInvitationRecord(mockClient, {
+        providerId: "prov-123",
+        invitedByUserId: "user-owner",
+        email: "tech@shop.com",
+        tokenHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      }),
+    ).rejects.toMatchObject({
+      name: "StaffInvitationPersistenceError",
+      code: "RECIPIENT_INELIGIBLE",
+      cause: rpcError,
+    });
+
+    try {
+      await insertStaffInvitationRecord(mockClient, {
+        providerId: "prov-123",
+        invitedByUserId: "user-owner",
+        email: "tech@shop.com",
+        tokenHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(StaffInvitationPersistenceError);
+    }
+  });
+
   it("listTeamMembers combines provider_memberships and canonical provider_user_profiles", async () => {
     const mockClient = createMockSupabase({});
     const members = await listTeamMembers(mockClient, "prov-123");
@@ -666,6 +721,154 @@ describe("Providers Module — createStaffInvitation duplicate policy", () => {
     expect(mockSendStaffInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ to: "tech@shop.com" }),
     );
+  });
+
+  it("reports emailDeliverySuccess: false when email delivery fails", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockSendStaffInviteEmail.mockResolvedValue({
+      success: false,
+      reason: "provider_error",
+    });
+    const mockClient = createMockSupabase({});
+
+    const result = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    expect(result.kind).toBe("created");
+    if (result.kind === "created") {
+      expect(result.emailDeliverySuccess).toBe(false);
+    }
+  });
+
+  it("preserves a failed-delivery invitation and reuses it on retry without another email", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    mockSendStaffInviteEmail.mockResolvedValue({
+      success: false,
+      reason: "provider_error",
+    });
+    const mockClient = createMockSupabase({
+      rpcDataSequence: [
+        [
+          {
+            invitation_id: "inv-preserved-1",
+            provider_id: "prov-shop-1",
+            email: "tech@shop.com",
+            role: "STAFF",
+            created_at: "2026-08-20T00:00:00Z",
+            expires_at: "2026-08-27T00:00:00Z",
+            reused: false,
+          },
+        ],
+        [
+          {
+            invitation_id: "inv-preserved-1",
+            provider_id: "prov-shop-1",
+            email: "tech@shop.com",
+            role: "STAFF",
+            created_at: "2026-08-20T00:00:00Z",
+            expires_at: "2026-08-27T00:00:00Z",
+            reused: true,
+          },
+        ],
+      ],
+    });
+    const rpc = vi.mocked(mockClient.rpc);
+
+    const first = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+    const retry = await createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    expect(first).toMatchObject({
+      kind: "created",
+      invitation: { id: "inv-preserved-1" },
+      emailDeliverySuccess: false,
+    });
+    expect(retry).toEqual(
+      expect.objectContaining({
+        kind: "reused",
+        invitation: expect.objectContaining({ id: "inv-preserved-1" }),
+      }),
+    );
+    expect(mockSendStaffInviteEmail).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("translates invitation persistence failures while retaining the diagnostic cause", async () => {
+    const sentinel = "SUPABASE_INTERNAL_SENTINEL_7a4c";
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    const mockClient = createMockSupabase({
+      rpcError: new Error(sentinel),
+    });
+
+    const promise = createStaffInvitation(
+      { email: "tech@shop.com" },
+      mockClient,
+    );
+
+    await expect(promise).rejects.toMatchObject({
+      name: "StaffInvitationError",
+      code: "TEMPORARY_FAILURE",
+      message:
+        "Staff invitations are temporarily unavailable. Please try again later.",
+    });
+    await expect(promise).rejects.toBeInstanceOf(StaffInvitationError);
+    await expect(promise).rejects.not.toThrow(sentinel);
+
+    try {
+      await promise;
+    } catch (error) {
+      expect((error as StaffInvitationError).cause).toEqual(
+        expect.objectContaining({ message: expect.stringContaining(sentinel) }),
+      );
+    }
+    expect(mockSendStaffInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("translates the structured recipient-ineligible persistence outcome", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    const rpcError = {
+      code: "P0001",
+      details: "RECIPIENT_INELIGIBLE",
+      message: "provider wording may change without affecting classification",
+    };
+    const mockClient = createMockSupabase({ rpcError });
+
+    await expect(
+      createStaffInvitation({ email: "tech@shop.com" }, mockClient),
+    ).rejects.toMatchObject({
+      name: "StaffInvitationError",
+      code: "RECIPIENT_INELIGIBLE",
+      message:
+        "This person already belongs to a Provider and cannot be invited.",
+      cause: rpcError,
+    });
+    await expect(
+      createStaffInvitation({ email: "tech@shop.com" }, mockClient),
+    ).rejects.not.toThrow(rpcError.message);
+  });
+
+  it("does not classify an unknown persistence detail as recipient ineligibility", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    const rpcError = {
+      code: "P0001",
+      details: "UNEXPECTED_PROVIDER_FAILURE",
+      message: "User already has an active provider membership",
+    };
+    const mockClient = createMockSupabase({ rpcError });
+
+    await expect(
+      createStaffInvitation({ email: "tech@shop.com" }, mockClient),
+    ).rejects.toMatchObject({
+      name: "StaffInvitationError",
+      code: "TEMPORARY_FAILURE",
+    });
   });
 
   it("rejects non-OWNER callers before persistence", async () => {

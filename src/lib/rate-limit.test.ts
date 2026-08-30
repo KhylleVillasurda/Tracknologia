@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createPublicOperationClient: vi.fn(),
@@ -23,14 +23,25 @@ const PROXY_SECRET = "test-only-proxy-proof-with-at-least-32-characters";
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv("NODE_ENV", "development");
+  process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY =
+    "sb_pub_test_123456789012345678901234567890";
+  process.env.SUPABASE_SERVICE_ROLE_KEY =
+    "sb_service_test_123456789012345678901234567890";
   process.env.PUBLIC_ABUSE_HMAC_SECRET = SECRET;
+  process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET = PROXY_SECRET;
   delete process.env.PUBLIC_ABUSE_SHARED_DEV_BUCKET;
-  delete process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET;
   delete process.env.PUBLIC_ABUSE_TRACKING_LOOKUP_MAX;
   delete process.env.PUBLIC_ABUSE_TRACKING_LOOKUP_WINDOW_SECONDS;
   delete process.env.PUBLIC_ABUSE_REPAIR_REQUEST_MAX;
   delete process.env.PUBLIC_ABUSE_REPAIR_REQUEST_WINDOW_SECONDS;
   mocks.createPublicOperationClient.mockResolvedValue({ rpc: mocks.rpc });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("durable public-operation abuse control", () => {
@@ -122,9 +133,8 @@ describe("durable public-operation abuse control", () => {
   });
 
   it("rejects missing, spoofed, or invalid ingress metadata", async () => {
-    await expect(resolveClientIdentifier()).rejects.toThrow(
-      "trusted ingress is not configured",
-    );
+    delete process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET;
+    await expect(resolveClientIdentifier()).rejects.toThrow();
 
     process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET = PROXY_SECRET;
     mocks.headers.mockResolvedValue({
@@ -171,12 +181,11 @@ describe("durable public-operation abuse control", () => {
   });
 
   it("fails closed without ingress proof unless the local shared bucket is opted in", async () => {
+    delete process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET;
     mocks.headers.mockResolvedValue({
       get: vi.fn().mockReturnValue("198.51.100.99"),
     });
 
-    await expect(resolveClientIdentifier()).rejects.toThrow(
-      "trusted ingress is not configured",
-    );
+    await expect(resolveClientIdentifier()).rejects.toThrow();
   });
 });

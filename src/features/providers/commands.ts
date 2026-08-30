@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireProviderRole, requireUser } from "@/features/auth";
+import { getAppOrigin } from "@/lib/config/server";
 import { sendStaffInviteEmail } from "@/lib/email/client";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,6 +16,7 @@ import {
   removeStaffMemberRecord,
   replaceProviderServiceModes,
   revokeStaffInvitation as revokeStaffInvitationPersistence,
+  StaffInvitationPersistenceError,
   updateProviderProfileRecord,
   updateProviderUserProfileRecord,
 } from "./persistence";
@@ -234,6 +236,24 @@ export interface ReusedStaffInvitationResult {
 export type CreateStaffInvitationResult =
   CreatedStaffInvitationResult | ReusedStaffInvitationResult;
 
+export type StaffInvitationErrorCode =
+  | "INVALID_INPUT"
+  | "UNAVAILABLE_FOR_PROVIDER"
+  | "RECIPIENT_INELIGIBLE"
+  | "TEMPORARY_FAILURE";
+
+/** Stable feature-level failures for the Staff invitation workflow. */
+export class StaffInvitationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: StaffInvitationErrorCode,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "StaffInvitationError";
+  }
+}
+
 /**
  * Creates a secure staff invitation for a Shop Provider.
  * Generates a high-entropy raw token, persists only its SHA-256 digest,
@@ -253,13 +273,20 @@ export async function createStaffInvitation(
   // 1. Authorize: Caller must be OWNER of a SHOP provider
   const context = await requireProviderRole(["OWNER"], supabase);
   if (context.providerType !== "SHOP") {
-    throw new Error("Staff invitations are only available for Repair Shops");
+    throw new StaffInvitationError(
+      "Staff invitations are only available for Repair Shops",
+      "UNAVAILABLE_FOR_PROVIDER",
+    );
   }
 
   // 2. Validate input
   const parsed = staffInvitationSchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid email address");
+    throw new StaffInvitationError(
+      parsed.error.issues[0]?.message ?? "Invalid email address",
+      "INVALID_INPUT",
+      parsed.error,
+    );
   }
 
   // 3. Generate raw cryptographic token and SHA-256 digest
@@ -267,19 +294,42 @@ export async function createStaffInvitation(
   const tokenHash = hashInvitationToken(rawToken);
 
   // 4. Persist invitation record with hashed token (or reuse an active one)
-  const { invitation, reused } = await insertStaffInvitationRecord(supabase, {
-    providerId: context.providerId,
-    invitedByUserId: context.userId,
-    email: parsed.data.email,
-    tokenHash,
-  });
+  let persistenceResult: Awaited<
+    ReturnType<typeof insertStaffInvitationRecord>
+  >;
+  try {
+    persistenceResult = await insertStaffInvitationRecord(supabase, {
+      providerId: context.providerId,
+      invitedByUserId: context.userId,
+      email: parsed.data.email,
+      tokenHash,
+    });
+  } catch (error) {
+    if (
+      error instanceof StaffInvitationPersistenceError &&
+      error.code === "RECIPIENT_INELIGIBLE"
+    ) {
+      throw new StaffInvitationError(
+        "This person already belongs to a Provider and cannot be invited.",
+        "RECIPIENT_INELIGIBLE",
+        error.cause ?? error,
+      );
+    }
+
+    throw new StaffInvitationError(
+      "Staff invitations are temporarily unavailable. Please try again later.",
+      "TEMPORARY_FAILURE",
+      error,
+    );
+  }
+  const { invitation, reused } = persistenceResult;
 
   if (reused) {
     return { kind: "reused", invitation };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const fullInviteUrl = `${appUrl}/register?invite=${rawToken}`;
+  const appOrigin = getAppOrigin();
+  const fullInviteUrl = `${appOrigin}/register?invite=${rawToken}`;
 
   // 5. Send invitation email
   const emailResult = await sendStaffInviteEmail({
