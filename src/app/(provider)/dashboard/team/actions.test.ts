@@ -40,7 +40,10 @@ function inviteFormData(email: string) {
   return formData;
 }
 
-function rpcClient(error: Error | null = null): SupabaseClient {
+function rpcClient(
+  error:
+    Error | { code: string; details: string; message: string } | null = null,
+): SupabaseClient {
   return {
     rpc: vi.fn().mockResolvedValue({ data: null, error }),
   } as unknown as SupabaseClient;
@@ -113,11 +116,11 @@ describe("inviteStaffAction", () => {
 
   it("keeps recipient eligibility distinct without returning raw RPC text", async () => {
     mocks.createClient.mockResolvedValue(
-      rpcClient(
-        new Error(
-          "Failed to create staff invitation: User already has an active provider membership",
-        ),
-      ),
+      rpcClient({
+        code: "P0001",
+        details: "RECIPIENT_INELIGIBLE",
+        message: "User already has an active provider membership",
+      }),
     );
 
     const result = await inviteStaffAction(

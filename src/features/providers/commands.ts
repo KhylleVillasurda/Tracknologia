@@ -16,6 +16,7 @@ import {
   removeStaffMemberRecord,
   replaceProviderServiceModes,
   revokeStaffInvitation as revokeStaffInvitationPersistence,
+  StaffInvitationPersistenceError,
   updateProviderProfileRecord,
   updateProviderUserProfileRecord,
 } from "./persistence";
@@ -304,12 +305,14 @@ export async function createStaffInvitation(
       tokenHash,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("User already has an active provider membership")) {
+    if (
+      error instanceof StaffInvitationPersistenceError &&
+      error.code === "RECIPIENT_INELIGIBLE"
+    ) {
       throw new StaffInvitationError(
         "This person already belongs to a Provider and cannot be invited.",
         "RECIPIENT_INELIGIBLE",
-        error,
+        error.cause ?? error,
       );
     }
 

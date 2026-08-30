@@ -37,6 +37,7 @@ import {
   listTeamMembers,
   getPublicProviderProfile,
   removeStaffMemberRecord as mockedRemoveStaffMemberRecord,
+  StaffInvitationPersistenceError,
 } from "./persistence";
 import {
   removeStaffMember,
@@ -84,7 +85,7 @@ const membershipId = "0b8f6d0e-7c1a-4a5e-9a2b-3c4d5e6f7a8b";
 function createMockSupabase(options: {
   rpcData?: unknown;
   rpcDataSequence?: unknown[];
-  rpcError?: Error | null;
+  rpcError?: unknown;
   tableData?: unknown;
   tableError?: Error | null;
 }) {
@@ -527,6 +528,41 @@ describe("Providers Module — Persistence & Token Hashing", () => {
     expect(invitation.email).toBe("tech@shop.com");
   });
 
+  it("maps the known recipient-ineligible RPC signal to a typed persistence failure", async () => {
+    const rpcError = {
+      code: "P0001",
+      details: "RECIPIENT_INELIGIBLE",
+      message: "recipient wording supplied by PostgreSQL",
+    };
+    const mockClient = createMockSupabase({ rpcError });
+
+    await expect(
+      insertStaffInvitationRecord(mockClient, {
+        providerId: "prov-123",
+        invitedByUserId: "user-owner",
+        email: "tech@shop.com",
+        tokenHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      }),
+    ).rejects.toMatchObject({
+      name: "StaffInvitationPersistenceError",
+      code: "RECIPIENT_INELIGIBLE",
+      cause: rpcError,
+    });
+
+    try {
+      await insertStaffInvitationRecord(mockClient, {
+        providerId: "prov-123",
+        invitedByUserId: "user-owner",
+        email: "tech@shop.com",
+        tokenHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(StaffInvitationPersistenceError);
+    }
+  });
+
   it("listTeamMembers combines provider_memberships and canonical provider_user_profiles", async () => {
     const mockClient = createMockSupabase({});
     const members = await listTeamMembers(mockClient, "prov-123");
@@ -793,6 +829,46 @@ describe("Providers Module — createStaffInvitation duplicate policy", () => {
       );
     }
     expect(mockSendStaffInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("translates the structured recipient-ineligible persistence outcome", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    const rpcError = {
+      code: "P0001",
+      details: "RECIPIENT_INELIGIBLE",
+      message: "provider wording may change without affecting classification",
+    };
+    const mockClient = createMockSupabase({ rpcError });
+
+    await expect(
+      createStaffInvitation({ email: "tech@shop.com" }, mockClient),
+    ).rejects.toMatchObject({
+      name: "StaffInvitationError",
+      code: "RECIPIENT_INELIGIBLE",
+      message:
+        "This person already belongs to a Provider and cannot be invited.",
+      cause: rpcError,
+    });
+    await expect(
+      createStaffInvitation({ email: "tech@shop.com" }, mockClient),
+    ).rejects.not.toThrow(rpcError.message);
+  });
+
+  it("does not classify an unknown persistence detail as recipient ineligibility", async () => {
+    mockRequireProviderRole.mockResolvedValue(ownerContext());
+    const rpcError = {
+      code: "P0001",
+      details: "UNEXPECTED_PROVIDER_FAILURE",
+      message: "User already has an active provider membership",
+    };
+    const mockClient = createMockSupabase({ rpcError });
+
+    await expect(
+      createStaffInvitation({ email: "tech@shop.com" }, mockClient),
+    ).rejects.toMatchObject({
+      name: "StaffInvitationError",
+      code: "TEMPORARY_FAILURE",
+    });
   });
 
   it("rejects non-OWNER callers before persistence", async () => {

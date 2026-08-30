@@ -16,6 +16,45 @@ import type {
 } from "./types";
 
 /**
+ * Stable persistence failures exposed by the Providers feature.
+ *
+ * The RPC exposes this condition through PostgreSQL's machine-readable
+ * exception detail. Keep the dependency-specific recognition here so command
+ * code consumes a feature-local identifier rather than coupling itself to
+ * PostgREST's free-form message.
+ */
+export type StaffInvitationPersistenceErrorCode = "RECIPIENT_INELIGIBLE";
+
+export class StaffInvitationPersistenceError extends Error {
+  constructor(
+    message: string,
+    public readonly code: StaffInvitationPersistenceErrorCode,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "StaffInvitationPersistenceError";
+  }
+}
+
+const RECIPIENT_INELIGIBLE_RPC_DETAIL = "RECIPIENT_INELIGIBLE";
+
+function isRecipientIneligibleRpcError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const rpcError = error as {
+    code?: unknown;
+    details?: unknown;
+  };
+
+  return (
+    rpcError.code === "P0001" &&
+    rpcError.details === RECIPIENT_INELIGIBLE_RPC_DETAIL
+  );
+}
+
+/**
  * Generates a SHA-256 cryptographic digest of a raw token.
  * Only the digest is stored in the database; raw tokens are never persisted.
  */
@@ -233,6 +272,14 @@ export async function insertStaffInvitationRecord(
   });
 
   if (error) {
+    if (isRecipientIneligibleRpcError(error)) {
+      throw new StaffInvitationPersistenceError(
+        "Staff invitation recipient is ineligible",
+        "RECIPIENT_INELIGIBLE",
+        error,
+      );
+    }
+
     throw new Error(`Failed to create staff invitation: ${error.message}`);
   }
 
