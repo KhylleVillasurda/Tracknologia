@@ -115,6 +115,9 @@ Governs secure, Owner-authorized Staff onboarding (LD-01).
 - **Recipient eligibility**: `create_staff_invitation` refuses to create or
   reuse an invitation for an email whose account already holds an active
   `provider_memberships` row (the resulting link could never be accepted).
+  Its PostgreSQL exception uses SQLSTATE `P0001` with
+  `DETAIL = 'RECIPIENT_INELIGIBLE'` so persistence clients can classify this
+  outcome without depending on human-readable error text.
   Re-inviting becomes valid again after Owner offboarding removes the
   membership. All three membership-establishing/acquisition paths participate
   in the same recipient-email serialization boundary, keyed by the normalized
