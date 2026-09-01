@@ -163,6 +163,25 @@ pnpm test:run
 pnpm build
 ```
 
+## End-to-end (Playwright) testing
+
+Run the suite with `pnpm test:e2e`. Before running it:
+
+1. Install the Chromium browser once:
+   ```bash
+   pnpm exec playwright install --with-deps chromium
+   ```
+2. Point `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+   and `SUPABASE_SERVICE_ROLE_KEY` at a **disposable** test Supabase project —
+   never production or shared mutable data. The fixtures seed and clean up
+   every actor and provider they create via the service-role key.
+3. Optionally set `E2E_BASE_URL` to the app URL. When omitted, Playwright's
+   `webServer` starts the app in dev mode at `http://localhost:3000`.
+
+The suite must stay deterministic: no arbitrary sleeps, each scenario owns and
+cleans up its data, and a flaky release-critical test is a defect rather than
+something to normalize with reruns.
+
 ## Supabase & Database Migrations
 
 Each development environment connects to the Tracknologia Supabase project.
