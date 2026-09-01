@@ -1,10 +1,16 @@
-import { expect, test } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Request as PlaywrightRequest,
+} from "@playwright/test";
 import {
   createServiceClient,
+  replayActionRequest,
   seedActor,
   cleanupActors,
   loginAndCaptureState,
   uniqueDisplayName,
+  type CapturedActionRequest,
   type TestActor,
 } from "./helpers/fixtures";
 
@@ -64,13 +70,42 @@ test.describe("E2E-02 Customer Request", () => {
       await page.getByRole("link", { name: "Review Request" }).click();
       await page.waitForURL(/\/dashboard\/requests\/[0-9a-f-]{36}$/);
 
+      // Capture the exact on-the-wire accept request (headers + body) so the
+      // very same Server-Action can be replayed after processing.
+      const acceptForm = page.locator("form").filter({
+        has: page.getByRole("button", { name: "Accept & Create Repair" }),
+      });
+      await expect(acceptForm).toHaveCount(1);
+
+      let capturedAccept: CapturedActionRequest | null = null;
+      const captureAcceptRequest = (request: PlaywrightRequest) => {
+        if (
+          capturedAccept ||
+          !request.headers()["next-action"] ||
+          !request.postData()
+        ) {
+          return;
+        }
+        capturedAccept = {
+          url: request.url(),
+          headers: request.headers(),
+          postData: request.postData() as string,
+        };
+      };
+
       await page.getByLabel("Internal Notes").fill(internalMarker);
+      page.on("request", captureAcceptRequest);
       await page
         .getByRole("button", { name: "Accept & Create Repair" })
         .click();
       await expect(page.getByText("ACCEPTED", { exact: true })).toBeVisible({
         timeout: 15_000,
       });
+      page.off("request", captureAcceptRequest);
+      if (!capturedAccept) {
+        throw new Error("[E2E fixture] accept action request was not captured");
+      }
+      const acceptRequest = capturedAccept;
 
       // 3. Durable state: acceptance created exactly one authoritative
       //    CUSTOMER_REQUEST Repair starting IN_PROGRESS with a Tracking Code.
@@ -109,13 +144,27 @@ test.describe("E2E-02 Customer Request", () => {
       await expect(trackerPage.getByText(internalMarker)).not.toBeVisible();
       await trackerContext.close();
 
-      // 6. Replay resistance: after reload the acceptance action is gone and
-      //    the durable Repair count stays at exactly one.
-      await page.goto(`/dashboard/requests/${requestId}`);
+      // 6. Replay resistance: re-send the captured acceptance request for the
+      //    now processed Request byte-for-byte. The action must refuse and must
+      //    not fabricate a second Repair.
+      const replayResult = await replayActionRequest(page, acceptRequest);
+      expect(replayResult.status).toBeLessThan(500);
+      expect(replayResult.body).toContain("already been processed");
       await expect(page.getByText("Request already processed")).toBeVisible();
       await expect(
         page.getByRole("button", { name: "Accept & Create Repair" }),
       ).toHaveCount(0);
+
+      const replayRepair = await admin
+        .from("repairs")
+        .select("origin, current_status")
+        .eq("repair_request_id", requestId)
+        .single();
+      expect(replayRepair.error).toBeNull();
+      expect(replayRepair.data).toMatchObject({
+        origin: "CUSTOMER_REQUEST",
+        current_status: "IN_PROGRESS",
+      });
 
       const replayCount = await admin
         .from("repairs")

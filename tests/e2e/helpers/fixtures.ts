@@ -247,3 +247,51 @@ export async function readTrackingCode(page: Page): Promise<string> {
   }
   return match[0];
 }
+
+export interface ServerActionDispatchResult {
+  status: number;
+  body: string;
+  finalUrl: string;
+}
+
+/**
+ * A real, on-the-wire Server-Action request captured from an enhanced form
+ * submission, ready to be replayed byte-for-byte.
+ */
+export interface CapturedActionRequest {
+  url: string;
+  headers: Record<string, string>;
+  postData: string;
+}
+
+/**
+ * Replays a real Server-Action request as-is: the identical URL, headers, and
+ * body the browser dispatched, executed inside the caller's authenticated page
+ * so its session cookies apply. Returns the status and response body so a safe
+ * refusal can be asserted directly.
+ */
+export async function replayActionRequest(
+  page: Page,
+  captured: CapturedActionRequest,
+): Promise<ServerActionDispatchResult> {
+  return page.evaluate(async ({ url, headers, postData }) => {
+    const cleanHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      const lower = key.toLowerCase();
+      if (lower === "content-length" || lower === "host") {
+        continue;
+      }
+      cleanHeaders[key] = value;
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      headers: cleanHeaders,
+      body: postData,
+    });
+    return {
+      status: response.status,
+      body: await response.text(),
+      finalUrl: location.href,
+    };
+  }, captured);
+}
