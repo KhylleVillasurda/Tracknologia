@@ -183,10 +183,10 @@ Run module/component tests:
 docker compose run --rm web npm test
 ```
 
-Run end-to-end tests:
+Run end-to-end tests (Playwright; requires a local Supabase stack and the E2E environment — see `docs/TESTING.md`):
 
 ```bash
-docker compose run --rm web npx playwright test
+pnpm test:e2e
 ```
 
 Create a production build:

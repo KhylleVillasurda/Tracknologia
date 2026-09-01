@@ -28,17 +28,59 @@ Avoid testing implementation details or Tailwind class strings unless they are f
 
 ### End-to-end tests — Playwright
 
-Critical flows:
+Run with `pnpm test:e2e` (or `pnpm exec playwright test`). The suite lives under
+`tests/e2e/` and drives the real UI against the supplied Supabase project. It
+sits on top of the module, contract, and integration layers; it does not replace
+them.
 
-1. Provider authentication -> create Repair -> receive tracking code -> customer tracks Repair.
-2. Customer submits Repair Request -> Provider accepts -> Repair created -> customer tracks Repair.
-3. Provider tenant isolation across protected routes/actions.
+Environment (see `.env.example` and the fixtures in `tests/e2e/helpers/`):
+
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — the
+  public Supabase credentials of a **local** Supabase stack.
+- `SUPABASE_SERVICE_ROLE_KEY` — required so fixtures can seed and clean up test
+  actors/tenants. The fixtures refuse any host other than
+  `localhost`/`127.0.0.1`/`::1`: destructive seeding is local/disposable-only,
+  never production or shared mutable data. Start the stack with `supabase
+start` and run `pnpm db:reset` before the suite.
+- `E2E_BASE_URL` — the app URL. Defaults to the Playwright `webServer`
+  (`http://localhost:3000`), which starts the app in dev mode (some flows, such
+  as E2E-06 registering staff through the live form, require `runtime=local`).
+
+Mandatory release scenarios (one spec file each under `tests/e2e/`):
+
+1. `direct-repair.spec.ts` — Provider login, create Repair, `IN_PROGRESS`,
+   tracking code, public customer tracking, status updates, `READY`,
+   `COMPLETED`.
+2. `customer-request.spec.ts` — public Provider page, submit Request, Provider
+   accepts, exactly one `CUSTOMER_REQUEST` Repair starting `IN_PROGRESS`,
+   tracking code, public Tracking through the real `/track` UI, and replay
+   resistance (acceptance action is not available again and creates no second
+   Repair).
+3. `one-person-shop.spec.ts` — a single SHOP OWNER completes the full Repair
+   workflow with no artificial technician requirement.
+4. `independent-repairer.spec.ts` — Independent Provider registers and onboards
+   through the real UI with Service Area + Meetup/Home Service, no mandatory
+   shop address, then operates a normal non-shop-mode Repair.
+5. `cross-tenant.spec.ts` — Provider A cannot read **or mutate** Provider B's
+   protected data; B's durable Repair state is unchanged after A's attempts.
+6. `staff-lifecycle.spec.ts` — OWNER invites, Staff accepts, gets permitted
+   access, owner-only controls are denied, OWNER removes Staff, access is
+   denied.
+
+Reliability rules:
+
+- Never use arbitrary sleeps; wait on observable application states.
+- Each test owns and deterministically cleans up its data (fixtures seed and
+  remove every actor/provider it creates).
+- A flaky release-critical test is a defect, not something to normalize with
+  rerun-until-green. Retries stay disabled (`retries: 0`); failure artifacts
+  (trace/video/screenshot under `test-results/` plus the HTML report) are
+  retained on the failing run itself and uploaded by the `E2E` workflow.
 
 ## Commands
 
 ```bash
-docker compose run --rm web npm test
-docker compose run --rm web npx playwright test
+pnpm test:e2e
 ```
 
 Before merging a substantial change also run:
