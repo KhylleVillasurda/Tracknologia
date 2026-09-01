@@ -1,15 +1,15 @@
 name: E2E
 
 on:
-  # pull_request:
-  #   branches:
-  #     - staging
-  #     - master
+  pull_request:
+    branches:
+      - staging
+      - master
 
-  # push:
-  #   branches:
-  #     - staging
-  #     - master
+  push:
+    branches:
+      - staging
+      - master
 
   workflow_dispatch:
 
@@ -24,13 +24,18 @@ jobs:
   e2e:
     name: Playwright
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
       E2E_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      # Local development-only application runtime values. The E2E suite drives
+      # flows that require runtime=local (e.g. staff registration without email
+      # confirmation), and the HMAC value is a test-only local placeholder, not
+      # a production credential.
+      PUBLIC_ABUSE_HMAC_SECRET: e2e-ci-local-hmac-secret-placeholder-32chars
+      PUBLIC_ABUSE_SHARED_DEV_BUCKET: "true"
+      NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION: "false"
 
     steps:
       - name: Checkout repository
@@ -49,25 +54,63 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate E2E environment
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.115.0
+
+      - name: Initialize local Supabase config
+        run: supabase init
+
+      - name: Configure collision-free database port
         shell: bash
         run: |
-          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "Missing TEST_SUPABASE_URL, TEST_SUPABASE_PUBLISHABLE_KEY, or TEST_SUPABASE_SERVICE_ROLE_KEY."
-            echo "The Playwright fixtures seed actors via the service-role key, so it is required."
-            exit 1
+          sed -i '0,/port = 54322/s//port = 55432/' supabase/config.toml
+          grep -q '^port = 55432$' supabase/config.toml
+
+      - name: Prepare empty local seed
+        run: touch supabase/seed.sql
+
+      - name: Start local Supabase
+        shell: bash
+        run: |
+          if supabase start; then
+            exit 0
           fi
+
+          echo "::warning::Supabase startup failed; cleaning local state and retrying once."
+          supabase stop --all --no-backup || true
+          supabase start
+
+      - name: Reset local database
+        run: pnpm db:reset
+
+      - name: Export local Supabase test environment
+        shell: bash
+        run: |
+          supabase status -o env \
+            --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
+            --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
+            --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY \
+            | sed -E 's/^([^=]+)="(.*)"$/\1=\2/' >> "$GITHUB_ENV"
 
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright tests
-        run: pnpm exec playwright test
+        run: pnpm test:e2e
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report-${{ github.run_id }}
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true

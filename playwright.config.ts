@@ -29,7 +29,9 @@ export default defineConfig({
 
   use: {
     baseURL,
-    trace: "on-first-retry",
+    // retries are disabled by policy, so traces must be retained on the actual
+    // failing run rather than on an (never-taken) retry.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
