@@ -8,6 +8,8 @@ export const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
 export const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
+const LOCAL_TEST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+
 export function requireE2EConfig(): void {
   const missing = [
     ["NEXT_PUBLIC_SUPABASE_URL", supabaseUrl],
@@ -22,6 +24,48 @@ export function requireE2EConfig(): void {
         .join(", ")}`,
     );
   }
+
+  // The fixtures create and delete Auth users, Providers, memberships,
+  // profiles, Repairs, and Requests via the service-role credential. Running
+  // those destructive fixtures against anything but a disposable local
+  // Supabase stack is never acceptable, so refuse non-local hosts up front.
+  let parsed: URL;
+  try {
+    parsed = new URL(supabaseUrl);
+  } catch {
+    throw new Error(
+      `Invalid NEXT_PUBLIC_SUPABASE_URL for E2E: "${supabaseUrl}". ` +
+        "Destructive E2E fixtures require a disposable local Supabase stack " +
+        `(allowed hosts: ${[...LOCAL_TEST_HOSTNAMES].join(", ")}).`,
+    );
+  }
+  if (!LOCAL_TEST_HOSTNAMES.has(parsed.hostname)) {
+    throw new Error(
+      `E2E refuses to run destructive fixtures against "${supabaseUrl}". ` +
+        "The E2E suite seeds and deletes test tenants via the service-role " +
+        "key, so it must target a disposable local Supabase stack " +
+        `(allowed hosts: ${[...LOCAL_TEST_HOSTNAMES].join(", ")}). ` +
+        "Start one with `supabase start` and run `pnpm db:reset`.",
+    );
+  }
+}
+
+/** Resolves an Auth user id by email, or returns null when absent. */
+export async function findAuthUserByEmail(
+  admin: SupabaseClient,
+  email: string,
+): Promise<string | null> {
+  const { data, error } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (error) {
+    throw new Error(
+      `[E2E fixture] could not list users to find ${email}: ${error.message}`,
+    );
+  }
+  const match = data?.users.find((user) => user.email === email);
+  return match?.id ?? null;
 }
 
 export function createServiceClient(): SupabaseClient {
@@ -162,27 +206,30 @@ export async function cleanupActors(
   if (actorIds.length === 0) {
     return;
   }
-  await admin
+  const userIds = actorIds.map((actor) => actor.userId);
+  const providerIds = actorIds.map((actor) => actor.providerId);
+
+  const { error: membershipError } = await admin
     .from("provider_memberships")
     .delete()
-    .in(
-      "user_id",
-      actorIds.map((a) => a.userId),
-    );
-  await admin
+    .in("user_id", userIds);
+  assertOk({ error: membershipError }, "delete fixture memberships");
+
+  const { error: profileError } = await admin
     .from("provider_user_profiles")
     .delete()
-    .in(
-      "user_id",
-      actorIds.map((a) => a.userId),
-    );
-  await admin
+    .in("user_id", userIds);
+  assertOk({ error: profileError }, "delete fixture profiles");
+
+  // Provider deletion cascades to repairs, repair_requests, status events,
+  // customer updates, and tracking observations (committed schema), so the
+  // repaired tenants leave no residue once the provider row is gone.
+  const { error: providerError } = await admin
     .from("providers")
     .delete()
-    .in(
-      "id",
-      actorIds.map((a) => a.providerId),
-    );
+    .in("id", providerIds);
+  assertOk({ error: providerError }, "delete fixture providers");
+
   for (const actor of actorIds) {
     const { error } = await admin.auth.admin.deleteUser(actor.userId);
     assertOk({ error }, `delete fixture user ${actor.email}`);
