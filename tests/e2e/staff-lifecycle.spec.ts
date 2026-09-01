@@ -4,6 +4,7 @@ import {
   seedActor,
   cleanupActors,
   loginAndCaptureState,
+  findAuthUserByEmail,
   uniqueEmail,
   type TestActor,
 } from "./helpers/fixtures";
@@ -71,7 +72,16 @@ test.describe("E2E-06 Staff lifecycle", () => {
       await staffPage.goto("/dashboard/repairs");
       await expect(staffPage).toHaveURL(/\/dashboard\/repairs/);
 
-      // 5. STAFF cannot see owner-only team controls.
+      // 5. STAFF receives the owner-only denial on an owner-only surface.
+      await staffPage.goto("/dashboard/settings");
+      await expect(
+        staffPage.getByText(
+          "Only a Provider Owner can change business and Service Mode settings.",
+        ),
+      ).toBeVisible();
+      await expect(staffPage.getByText("Provider Profile")).not.toBeVisible();
+
+      // 6. STAFF cannot see owner-only team controls.
       await staffPage.goto("/dashboard/team");
       await expect(staffPage).toHaveURL(/\/dashboard\/team/);
       await expect(
@@ -82,7 +92,7 @@ test.describe("E2E-06 Staff lifecycle", () => {
       ).toHaveCount(0);
       await staffContext.close();
 
-      // 6. OWNER removes the staff member.
+      // 7. OWNER removes the staff member.
       await ownerPage.goto("/dashboard/team");
       await ownerPage.getByRole("button", { name: "Remove" }).first().click();
       await ownerPage.getByRole("button", { name: "Confirm" }).click();
@@ -111,13 +121,14 @@ test.describe("E2E-06 Staff lifecycle", () => {
       await removedContext.close();
     } finally {
       await cleanupActors(admin, [owner]);
-      const { data: users } = await admin.auth.admin.listUsers({
-        page: 1,
-        perPage: 1000,
-      });
-      const staffUser = users?.users.find((u) => u.email === staffEmail);
-      if (staffUser) {
-        await admin.auth.admin.deleteUser(staffUser.id);
+      const staffUserId = await findAuthUserByEmail(admin, staffEmail);
+      if (staffUserId) {
+        const { error } = await admin.auth.admin.deleteUser(staffUserId);
+        if (error) {
+          throw new Error(
+            `[E2E fixture] could not delete staff user ${staffEmail}: ${error.message}`,
+          );
+        }
       }
     }
   });

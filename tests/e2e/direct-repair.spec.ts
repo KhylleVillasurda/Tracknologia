@@ -45,6 +45,19 @@ test.describe("E2E-01 Direct Repair", () => {
       await page.getByRole("button", { name: "Add Customer Update" }).click();
       await expect(page.getByText(customerUpdate)).toBeVisible();
 
+      // Public Tracking must work while the Repair is active (IN_PROGRESS),
+      // not only after terminal completion.
+      const activeContext = await browser.newContext();
+      const activePage = await activeContext.newPage();
+      await activePage.goto("/track");
+      await activePage.getByLabel(/Tracking Code/i).fill(trackingCode);
+      await activePage.getByRole("button", { name: "Track Status" }).click();
+      await expect(
+        activePage.getByText("In progress", { exact: true }),
+      ).toBeVisible();
+      await expect(activePage.getByText(customerUpdate)).toBeVisible();
+      await activeContext.close();
+
       await page.getByRole("button", { name: "Ready", exact: true }).click();
       await expectVisibleStatus(page, "Ready");
 
