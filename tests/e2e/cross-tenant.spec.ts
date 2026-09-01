@@ -78,10 +78,69 @@ test.describe("E2E-05 Cross-tenant", () => {
       ).toHaveCount(0);
       await expect(pageA.getByLabel("Update message")).toHaveCount(0);
 
+      // 3a. Provider A must also fail to MUTATE B's repair. A creates its own
+      //     throwaway repair, then retargets the hidden repairId of its real
+      //     lifecycle/customer-update forms to B's repair and submits through
+      //     React's own enhanced form. The ownership check must refuse before
+      //     any write to B.
+      await pageA.goto("/dashboard/repairs/new");
+      await pageA.getByLabel("Customer name").fill("Tenant A Customer");
+      await pageA.getByLabel("Phone").fill("+639170000091");
+      await pageA.getByLabel("Device type").fill(`TenantA ${Date.now()}`);
+      await pageA.getByLabel("Reported Problem").fill("Private A issue");
+      await pageA.getByRole("button", { name: "Create Repair" }).click();
+      await pageA.waitForURL(/\/dashboard\/repairs\/[0-9a-f-]{36}$/);
+
+      // Baseline for every durable surface the mutations would touch.
+      const sideTableCount = async (table: string) => {
+        const { count, error } = await admin
+          .from(table)
+          .select("id", { count: "exact", head: true })
+          .eq("repair_id", bRepairId);
+        expect(error).toBeNull();
+        return count ?? 0;
+      };
+      const beforeStatusEvents = await sideTableCount("repair_status_events");
+      const beforeCustomerUpdates = await sideTableCount("repair_updates");
+
+      // Attack 1: retarget the customer-update form's hidden repairId to B and
+      //    submit for real. requireOwnedRepair refuses before any write.
+      const updateForm = pageA.locator("form").filter({
+        has: pageA.getByLabel("Update message"),
+      });
+      await expect(updateForm).toHaveCount(1);
+      await updateForm.locator('input[name="repairId"]').evaluate((el, bId) => {
+        (el as HTMLInputElement).value = bId;
+      }, bRepairId);
+      await pageA.getByLabel("Update message").fill("A wrote on B's repair");
+      await updateForm
+        .getByRole("button", { name: "Add Customer Update" })
+        .click();
+      await expect(pageA.getByText("Repair was not found")).toBeVisible({
+        timeout: 15_000,
+      });
+
+      // Attack 2: retarget the lifecycle form's hidden repairId to B and click
+      //    Ready. The same ownership check refuses.
+      const statusForm = pageA.locator("form").filter({
+        has: pageA.getByRole("button", { name: "Ready", exact: true }),
+      });
+      await expect(statusForm).toHaveCount(1);
+      await statusForm.locator('input[name="repairId"]').evaluate((el, bId) => {
+        (el as HTMLInputElement).value = bId;
+      }, bRepairId);
+      await statusForm
+        .getByRole("button", { name: "Ready", exact: true })
+        .click();
+      await expect(pageA.getByText("Repair was not found")).toBeVisible({
+        timeout: 15_000,
+      });
+
       await contextA.close();
 
       // 4. Provider B's durable state must be exactly as captured — no
-      //    Provider A-owned side effect was written against B's Repair.
+      //    Provider A-owned side effect was written against B's Repair or its
+      //    status-event/customer-update tables.
       const afterRow = await admin
         .from("repairs")
         .select("current_status, tracking_code, updated_at")
@@ -93,6 +152,12 @@ test.describe("E2E-05 Cross-tenant", () => {
         trackingCode: afterRow.data?.tracking_code,
         updatedAt: afterRow.data?.updated_at,
       }).toEqual(before);
+      expect(await sideTableCount("repair_status_events")).toBe(
+        beforeStatusEvents,
+      );
+      expect(await sideTableCount("repair_updates")).toBe(
+        beforeCustomerUpdates,
+      );
     } finally {
       await cleanupActors(admin, [providerA, providerB]);
     }
