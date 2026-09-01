@@ -4,23 +4,28 @@ import {
   seedActor,
   cleanupActors,
   loginAndCaptureState,
+  uniqueDisplayName,
   type TestActor,
 } from "./helpers/fixtures";
 
 test.describe("E2E-02 Customer Request", () => {
-  test("customer submits a request and provider accepts producing exactly one CUSTOMER_REQUEST repair", async ({
+  test("customer submits a request and the provider accepts producing exactly one CUSTOMER_REQUEST repair with public tracking and replay resistance", async ({
     browser,
   }) => {
     const admin = createServiceClient();
+    const providerName = uniqueDisplayName("Dale");
     const owner: TestActor = await seedActor(admin, {
       providerType: "SHOP",
+      displayName: providerName,
       serviceModes: ["DROP_OFF", "MEETUP"],
     });
 
     const customerPhone = `+63918${Math.floor(10000000 + Math.random() * 89999999)}`;
     const customerName = `Naomi ${Date.now()}`;
+    const internalMarker = `INTERNAL NOTE ${Date.now()}`;
 
     try {
+      // 1. Public customer submission (real UI).
       const customerContext = await browser.newContext();
       const customerPage = await customerContext.newPage();
 
@@ -49,8 +54,8 @@ test.describe("E2E-02 Customer Request", () => {
         .single();
       expect(requestRow.error).toBeNull();
       const requestId = requestRow.data?.id as string;
-      const referenceCode = requestRow.data?.reference_code as string;
 
+      // 2. Provider reviews and accepts through the real request UI.
       const providerContext = await browser.newContext();
       const page = await providerContext.newPage();
       await loginAndCaptureState(page, owner);
@@ -59,28 +64,70 @@ test.describe("E2E-02 Customer Request", () => {
       await page.getByRole("link", { name: "Review Request" }).click();
       await page.waitForURL(/\/dashboard\/requests\/[0-9a-f-]{36}$/);
 
+      await page.getByLabel("Internal Notes").fill(internalMarker);
       await page
         .getByRole("button", { name: "Accept & Create Repair" })
         .click();
       await expect(page.getByText("ACCEPTED", { exact: true })).toBeVisible({
         timeout: 15_000,
       });
-      await expect(page.getByText(referenceCode)).toBeVisible();
 
-      await providerContext.close();
+      // 3. Durable state: acceptance created exactly one authoritative
+      //    CUSTOMER_REQUEST Repair starting IN_PROGRESS with a Tracking Code.
+      const repairRow = await admin
+        .from("repairs")
+        .select("id, origin, current_status, tracking_code")
+        .eq("repair_request_id", requestId)
+        .single();
+      expect(repairRow.error).toBeNull();
+      expect(repairRow.data).toMatchObject({
+        origin: "CUSTOMER_REQUEST",
+        current_status: "IN_PROGRESS",
+      });
+      const trackingCode = repairRow.data?.tracking_code ?? "";
+      expect(trackingCode).toMatch(/^TRK-[A-F0-9]{24}$/);
 
+      // 4. Exactly one Repair may exist for this Request.
       const { count, error } = await admin
         .from("repairs")
         .select("id", { count: "exact", head: true })
         .eq("repair_request_id", requestId);
       expect(error).toBeNull();
       expect(count).toBe(1);
+
+      // 5. Public Tracking through the real /track UI, unauthenticated.
+      const trackerContext = await browser.newContext();
+      const trackerPage = await trackerContext.newPage();
+      await trackerPage.goto("/track");
+      await trackerPage.getByLabel(/Tracking Code/i).fill(trackingCode);
+      await trackerPage.getByRole("button", { name: "Track Status" }).click();
+      await expect(trackerPage.getByText(providerName)).toBeVisible();
+      await expect(
+        trackerPage.getByText("In progress", { exact: true }),
+      ).toBeVisible();
+      // The public projection must never expose Provider-internal notes.
+      await expect(trackerPage.getByText(internalMarker)).not.toBeVisible();
+      await trackerContext.close();
+
+      // 6. Replay resistance: after reload the acceptance action is gone and
+      //    the durable Repair count stays at exactly one.
+      await page.goto(`/dashboard/requests/${requestId}`);
+      await expect(page.getByText("Request already processed")).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Accept & Create Repair" }),
+      ).toHaveCount(0);
+
+      const replayCount = await admin
+        .from("repairs")
+        .select("id", { count: "exact", head: true })
+        .eq("repair_request_id", requestId);
+      expect(replayCount.error).toBeNull();
+      expect(replayCount.count).toBe(1);
+
+      await providerContext.close();
     } finally {
+      // Provider deletion cascades the Repair and RepairRequest rows.
       await cleanupActors(admin, [owner]);
-      await admin
-        .from("repair_requests")
-        .delete()
-        .eq("customer_phone", customerPhone);
     }
   });
 });
