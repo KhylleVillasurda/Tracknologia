@@ -61,8 +61,18 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Job name "Verify" is stable — branch protection depends on it.
       - name: Run unit and module tests
-        run: pnpm test:run
+        run: pnpm test:run -- --reporter=json --outputFile=test-results/unit.json
+
+      - name: Upload unit test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-results-${{ github.run_id }}
+          path: test-results/unit.json
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Build application
         env:
@@ -134,8 +144,22 @@ jobs:
             --override-name auth.service_role_key=SUPABASE_TEST_SERVICE_ROLE_KEY \
             | sed -E 's/^([^=]+)="(.*)"$/\1=\2/' >> "$GITHUB_ENV"
 
+      # Job name "Database integration" is stable — branch protection depends on it.
       - name: Run database integration tests
-        run: pnpm test:db
+        run: pnpm test:db -- --reporter=json --outputFile=test-results/db.json
+
+      - name: Upload DB test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: db-test-results-${{ github.run_id }}
+          path: test-results/db.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Capture Supabase logs
+        if: failure()
+        run: supabase logs --level=error 2>&1 | head -200 || true
 
       - name: Stop local Supabase
         if: always()
