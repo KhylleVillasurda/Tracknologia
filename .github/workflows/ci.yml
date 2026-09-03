@@ -187,8 +187,18 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          echo "=== Supabase error logs ==="
-          supabase logs --level=error 2>&1 | head -200 || true
+          echo "=== Local Supabase Postgres diagnostics ==="
+          db_container="$(
+            docker ps -a \
+              --filter 'name=supabase_db_' \
+              --format '{{.Names}}' \
+              | head -n 1
+          )"
+          if [ -n "$db_container" ]; then
+            docker logs --tail 200 "$db_container" 2>&1 || true
+          else
+            echo "::warning::Local Supabase Postgres container was not found."
+          fi
           echo "=== Supabase status ==="
           supabase status 2>&1 || true
 
