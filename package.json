@@ -16,7 +16,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest src tests/contracts",
     "test:run": "vitest run --passWithNoTests src tests/contracts",
-    "test:db": "vitest run tests/integration/db.test.ts",
+    "test:db": "vitest run tests/integration",
     "test:e2e": "playwright test",
     "db:reset": "supabase db reset",
     "rehearse:migrations": "bash scripts/rehearse-pending-migrations.sh"

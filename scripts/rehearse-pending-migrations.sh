@@ -201,7 +201,7 @@ log "lab API URL: $SUPABASE_TEST_URL"
 results="$lab_root/db-suite.log"
 log "running the database integration suite against the upgraded lab"
 set +e
-pnpm exec vitest run tests/integration/db.test.ts >"$results" 2>&1
+pnpm exec vitest run tests/integration >"$results" 2>&1
 rc=$?
 set -e
 

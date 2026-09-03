@@ -93,7 +93,25 @@ docker compose run --rm web npm run build
 ## Real PostgreSQL / RLS integration tests
 
 Run `supabase db reset` before `pnpm test:db` when working against a local
-Supabase stack.
+Supabase stack. `pnpm test:db` runs `vitest run tests/integration`, executing
+all `*.db.test.ts` files:
+
+```text
+tests/integration/
+  auth.db.test.ts              — Auth & public-operation RPC permissions
+  providers.db.test.ts         — Provider isolation, onboarding, settings
+  service-modes.db.test.ts     — Service Mode CRUD & Provider isolation
+  invitations.db.test.ts       — Invitation lifecycle & staff offboarding
+  repair-requests.db.test.ts   — RepairRequest lifecycle & Provider isolation
+  repairs.db.test.ts           — Repair lifecycle & Provider isolation
+  tracking.db.test.ts          — Public tracking & observation
+  helpers/
+    supabase-test-context.ts   — client setup, user/fixture lifecycle
+    shared-test-utils.ts       — reusable DB fixture helpers
+```
+
+Any shared fixture logic lives in `tests/integration/helpers/` as a small test-only
+seam, not a generic testing framework.
 
 In CI, the database job pins the Supabase CLI, overrides only the generated
 database port to `55432` to avoid runner collisions, retries startup once after
