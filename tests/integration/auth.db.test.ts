@@ -39,8 +39,7 @@ describe("Auth & Public Operation RPC Permissions", () => {
     const lookup = await anonClient.rpc("lookup_public_repair", {
       p_tracking_code: "TRK-0123456789ABCDEF01234567",
     });
-    // TEMPORARY CI-01 DB FAILURE PROBE — revert before re-review
-    expect(lookup.error, "PROBE-INTENTIONAL-DB-FAILURE").toBeNull();
+    expectRpcPermissionDenied(lookup);
 
     const observation = await anonClient.rpc(
       "record_successful_tracking_view",
