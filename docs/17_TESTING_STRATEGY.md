@@ -58,7 +58,8 @@ Unit tests cover deterministic helpers and domain rules without a live database.
 Feature-local validation coverage lives in
 `src/features/repair-requests/repair-requests.test.ts` and
 `src/features/repairs/repairs.test.ts`. Database/RLS behavior is covered in
-`tests/integration/db.test.ts`.
+`tests/integration/repair-requests.db.test.ts` and
+`tests/integration/repairs.db.test.ts`.
 
 ### Repairs
 
@@ -87,7 +88,7 @@ Feature-local validation coverage lives in
 
 Feature-local validation and lifecycle coverage lives in
 `src/features/repairs/repairs.test.ts`. Feature 04 PostgreSQL/RLS cases extend
-`tests/integration/db.test.ts` and require the
+`tests/integration/repairs.db.test.ts` and require the
 `20260824023000_complete_repairs.sql` and
 `20260824024000_harden_repair_service_mode_updates.sql` migrations.
 
@@ -105,7 +106,7 @@ Feature-local validation and lifecycle coverage lives in
 Feature-local coverage lives in `src/features/tracking/tracking.test.ts` and
 runs with `pnpm test:run`. Real function grants, raw-table denial, projection
 shape, both Repair origins, closed-Provider continuity, Update ordering/cap,
-and activity timestamps extend `tests/integration/db.test.ts` and require
+and activity timestamps extend `tests/integration/tracking.db.test.ts` and require
 `20260824030000_add_public_tracking_lookup.sql`.
 
 ### Analytics
@@ -124,7 +125,7 @@ feature-local coverage lives in `src/features/analytics/analytics.test.ts` and
 `src/features/tracking/tracking.test.ts`.
 Real table grants/RLS, bounded neutral RPC behavior, repeated raw views,
 distinct-Repair adoption, both Repair origins, and stored column shape extend
-`tests/integration/db.test.ts` and require
+`tests/integration/tracking.db.test.ts` and require
 `20260825010000_add_tracking_analytics.sql`.
 
 ## Contract tests
@@ -256,7 +257,11 @@ pnpm build
 supabase db reset
 ```
 
-`pnpm test:db` targets `tests/integration/db.test.ts` and must run against a real local Supabase instance. `pnpm db:reset` is the package-script equivalent of `supabase db reset`.
+`pnpm test:db` targets `tests/integration/*.db.test.ts` (split by Module:
+auth, providers, repair-requests, repairs, tracking, service-modes, invitations)
+with shared helpers in `tests/integration/helpers/`. It must run against a real
+local Supabase instance. `pnpm db:reset` is the package-script equivalent of
+`supabase db reset`.
 
 When a branch adds pending migrations, run the release-like upgrade rehearsal before pushing:
 
@@ -264,6 +269,6 @@ When a branch adds pending migrations, run the release-like upgrade rehearsal be
 pnpm rehearse:migrations
 ```
 
-`scripts/rehearse-pending-migrations.sh` boots a scratch Supabase lab on offset ports, applies only the shared (base) migration history, then applies exactly the branch's pending migrations (`supabase db push --local` on the lab) and runs the full `db.test.ts` suite against the upgraded lab. It fails if any already-shared migration was edited (forward-only enforcement). "Rehearsal B" evidence for the release plan.
+`scripts/rehearse-pending-migrations.sh` boots a scratch Supabase lab on offset ports, applies only the shared (base) migration history, then applies exactly the branch's pending migrations (`supabase db push --local` on the lab) and runs the full `tests/integration/` suite against the upgraded lab. It fails if any already-shared migration was edited (forward-only enforcement). "Rehearsal B" evidence for the release plan.
 
 Keep `pnpm-lock.yaml` committed to ensure dependency resolution consistency.

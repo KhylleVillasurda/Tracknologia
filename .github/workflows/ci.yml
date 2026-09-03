@@ -63,7 +63,16 @@ jobs:
 
       # Job name "Verify" is stable — branch protection depends on it.
       - name: Run unit and module tests
-        run: pnpm test:run -- --reporter=json --outputFile=test-results/unit.json
+        # Call vitest directly to ensure --reporter and --outputFile flags
+        # are applied. Using the npm script with "pnpm test:run --" forwards
+        # the literal "--" separator, which vitest interprets as a test-name
+        # filter boundary rather than a flag prefix.
+        run: >-
+          pnpm exec vitest run
+          --passWithNoTests
+          --reporter=json
+          --outputFile=test-results/unit.json
+          src tests/contracts
 
       - name: Upload unit test results
         if: failure()
@@ -72,7 +81,6 @@ jobs:
           name: unit-test-results-${{ github.run_id }}
           path: test-results/unit.json
           retention-days: 7
-          if-no-files-found: ignore
 
       - name: Build application
         env:
@@ -144,9 +152,28 @@ jobs:
             --override-name auth.service_role_key=SUPABASE_TEST_SERVICE_ROLE_KEY \
             | sed -E 's/^([^=]+)="(.*)"$/\1=\2/' >> "$GITHUB_ENV"
 
+      - name: Verify DB integration environment
+        shell: bash
+        run: |
+          for var in SUPABASE_TEST_URL SUPABASE_TEST_ANON_KEY SUPABASE_TEST_SERVICE_ROLE_KEY; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Required environment variable $var is not set. Supabase export may have failed."
+              exit 1
+            fi
+          done
+          echo "DB integration environment OK: SUPABASE_TEST_URL=${SUPABASE_TEST_URL}"
+
       # Job name "Database integration" is stable — branch protection depends on it.
       - name: Run database integration tests
-        run: pnpm test:db -- --reporter=json --outputFile=test-results/db.json
+        # Call vitest directly to ensure --reporter and --outputFile flags
+        # are applied. Using the npm script with "pnpm test:db --" forwards
+        # the literal "--" separator, which vitest interprets as a test-name
+        # filter boundary rather than a flag prefix.
+        run: >-
+          pnpm exec vitest run
+          --reporter=json
+          --outputFile=test-results/db.json
+          tests/integration
 
       - name: Upload DB test results
         if: failure()
@@ -155,11 +182,15 @@ jobs:
           name: db-test-results-${{ github.run_id }}
           path: test-results/db.json
           retention-days: 7
-          if-no-files-found: ignore
 
       - name: Capture Supabase logs
         if: failure()
-        run: supabase logs --level=error 2>&1 | head -200 || true
+        shell: bash
+        run: |
+          echo "=== Supabase error logs ==="
+          supabase logs --level=error 2>&1 | head -200 || true
+          echo "=== Supabase status ==="
+          supabase status 2>&1 || true
 
       - name: Stop local Supabase
         if: always()
