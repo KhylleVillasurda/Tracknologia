@@ -164,8 +164,7 @@ describe("Tracking lookup", () => {
 
     await expect(
       lookupRepairByTrackingCode(oversizedCode, client),
-      // TEMPORARY CI-01 FAILURE PROBE — revert before re-review
-    ).resolves.toBe("PROBE-INTENTIONAL-FAILURE");
+    ).resolves.toBeNull();
     expect(rpc).not.toHaveBeenCalled();
   });
 
