@@ -685,6 +685,47 @@ describe("Staff Invitations & Acceptance", () => {
     }
   });
 
+  it("invitation acceptance succeeds when invite and user emails differ only by case", async () => {
+    const adminClient = createAdminClient();
+    const owner = await createTestUser(
+      adminClient,
+      uniqueEmail("owner"),
+      password,
+    );
+    const staff = await createTestUser(
+      adminClient,
+      uniqueEmail("staff"),
+      password,
+    );
+    const ownerAuth = await signInTestUser(owner.email, password);
+    const staffAuth = await signInTestUser(staff.email, password);
+    const createdProviderIds: string[] = [];
+
+    try {
+      const provider = await createProviderAs(ownerAuth.client);
+      createdProviderIds.push(provider.providerId);
+
+      // The invite is stored normalized, so inviting the upper-cased address
+      // must still bind to the lower-cased authenticated user email.
+      const invite = await createInvitationAs(
+        ownerAuth.client,
+        staff.email.toUpperCase(),
+      );
+      expect(invite.email).toBe(staff.email.toLowerCase());
+
+      const accept = await acceptInvitationAs(
+        staffAuth.client,
+        invite.tokenHash,
+      );
+      expect(accept.error).toBeNull();
+    } finally {
+      await cleanupFixture(adminClient, {
+        providerIds: createdProviderIds,
+        userIds: [owner.user.id, staff.user.id],
+      });
+    }
+  });
+
   it("accepting one invitation supersedes sibling active pending invitations for the same Shop and email", async () => {
     const adminClient = createAdminClient();
     const anonClient = createAnonClient();
